@@ -6,7 +6,8 @@ import { getAuth, GoogleAuthProvider, signInWithPopup,
          onAuthStateChanged, signOut }                  from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import { getFirestore, collection, doc, getDocs,
          addDoc, getDoc, updateDoc, deleteDoc,
-         setDoc, writeBatch, serverTimestamp }          from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+         setDoc, writeBatch, serverTimestamp,
+         deleteField }                                  from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 // Firebase config — the API key is safe to expose; security is enforced by Firestore Rules
 const firebaseConfig = {
@@ -785,17 +786,30 @@ async function handleAddHomework(e) {
 
 async function handleClassFormSubmit(e) {
   e.preventDefault();
-  const id    = document.getElementById('edit-class-id').value;
-  const tabId = document.getElementById('settings-tab-select').value || state.activeTabId;
-  const data  = {
+  const id      = document.getElementById('edit-class-id').value;
+  const tabId   = document.getElementById('settings-tab-select').value || state.activeTabId;
+  const teacher = document.getElementById('class-teacher').value.trim();
+  const room    = document.getElementById('class-room').value.trim();
+  const period  = normalizePeriod(document.getElementById('class-period').value) || '';
+
+  const data = {
     tabId,
-    name:    document.getElementById('class-name').value.trim(),
-    color:   document.getElementById('class-color').value,
-    teacher: document.getElementById('class-teacher').value.trim() || undefined,
-    room:    document.getElementById('class-room').value.trim()    || undefined,
-    period:  normalizePeriod(document.getElementById('class-period').value) || undefined
+    name:  document.getElementById('class-name').value.trim(),
+    color: document.getElementById('class-color').value,
   };
   if (!data.name) return;
+
+  // Firestore can't store undefined. When editing, use deleteField() to clear
+  // optional fields the user left blank; when creating, just omit them.
+  if (id) {
+    data.teacher = teacher || deleteField();
+    data.room    = room    || deleteField();
+    data.period  = period  || deleteField();
+  } else {
+    if (teacher) data.teacher = teacher;
+    if (room)    data.room    = room;
+    if (period)  data.period  = period;
+  }
 
   try {
     if (id) {
