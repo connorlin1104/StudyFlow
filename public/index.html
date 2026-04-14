@@ -114,7 +114,7 @@
         <!-- LEFT SIDEBAR -->
         <nav class="settings-sidebar">
           <button class="settings-nav-item" data-page="tabs">Managing Tabs</button>
-          <button class="settings-nav-item settings-nav--active" data-page="classes">Managing Classes</button>
+          <button class="settings-nav-item settings-nav--active" data-page="classes">Managing Groups</button>
           <button class="settings-nav-item" data-page="help">Help</button>
         </nav>
 
@@ -133,58 +133,15 @@
             </div>
           </div>
 
-          <!-- PAGE: Managing Classes -->
+          <!-- PAGE: Managing Groups -->
           <div id="settings-page-classes" class="settings-page">
             <div class="settings-section">
               <div class="settings-tab-header">
                 <h3 class="settings-section-label">ADD IN</h3>
                 <select id="settings-tab-select"></select>
+                <button type="button" class="btn btn-sm btn-primary" id="add-group-btn">+ Add</button>
               </div>
               <div id="settings-classes-list"></div>
-            </div>
-
-            <hr class="divider">
-
-            <!-- ADD / EDIT GROUP FORM -->
-            <div class="settings-section settings-section--form">
-              <h3 class="settings-section-label" id="class-form-title">Add New Group</h3>
-              <form id="class-form" novalidate>
-                <input type="hidden" id="edit-class-id">
-
-                <div class="form-row">
-                  <div class="form-group form-group--grow">
-                    <label for="class-name">Name <span class="required">*</span></label>
-                    <input type="text" id="class-name" placeholder="e.g. Mathematics" required autocomplete="off">
-                  </div>
-                  <div class="form-group">
-                    <label>Color</label>
-                    <div class="color-picker">
-                      <div class="color-swatches" id="color-swatches"></div>
-                      <input type="color" id="class-color" value="#3b82f6" title="Custom color">
-                    </div>
-                  </div>
-                </div>
-
-                <div class="form-row">
-                  <div class="form-group">
-                    <label for="class-teacher">Teacher / Advisor</label>
-                    <input type="text" id="class-teacher" placeholder="e.g. Mr. Smith" autocomplete="off">
-                  </div>
-                  <div class="form-group">
-                    <label for="class-room">Room / Location</label>
-                    <input type="text" id="class-room" placeholder="e.g. Room 101" autocomplete="off">
-                  </div>
-                  <div class="form-group">
-                    <label for="class-period">Period / Time</label>
-                    <input type="text" id="class-period" placeholder="e.g. 1 or Monday" autocomplete="off">
-                  </div>
-                </div>
-
-                <div class="form-actions">
-                  <button type="button" class="btn btn-secondary hidden" id="cancel-edit-class">Cancel Edit</button>
-                  <button type="submit" class="btn btn-primary" id="class-form-submit">Add Group</button>
-                </div>
-              </form>
             </div>
           </div>
 
@@ -209,7 +166,7 @@
                   </div>
                   <span class="help-item-arrow">&#x203A;</span>
                 </button>
-                <a class="help-item" id="bug-report-link" href="https://forms.google.com" target="_blank" rel="noopener">
+                <a class="help-item" id="bug-report-link" href="https://docs.google.com/forms/d/e/1FAIpQLScZIOiYExPrJ_8joVL9NiAoSckynqpP6Kad_9WM2N-c0f906A/viewform?usp=publish-editor" target="_blank" rel="noopener">
                   <span class="help-item-icon">&#x1F41B;</span>
                   <div class="help-item-body">
                     <span class="help-item-title">Report a Bug</span>
@@ -224,6 +181,58 @@
         </div>
       </div>
 
+    </div>
+  </div>
+
+  <!-- ================================================================
+       GROUP FORM MODAL (Add / Edit)
+       ================================================================ -->
+  <div id="group-form-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="group-form-title">
+    <div class="modal-backdrop" id="group-form-backdrop"></div>
+    <div class="modal-box">
+      <div class="modal-header">
+        <h2 id="group-form-title">Add New Group</h2>
+        <button class="close-btn" id="close-group-form" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-form-body">
+        <form id="class-form" novalidate>
+          <input type="hidden" id="edit-class-id">
+
+          <div class="form-row">
+            <div class="form-group form-group--grow">
+              <label for="class-name">Name <span class="required">*</span></label>
+              <input type="text" id="class-name" placeholder="e.g. Mathematics" required autocomplete="off">
+            </div>
+            <div class="form-group">
+              <label>Color</label>
+              <div class="color-picker">
+                <div class="color-swatches" id="color-swatches"></div>
+                <input type="color" id="class-color" value="#3b82f6" title="Custom color">
+              </div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="class-teacher">Teacher / Advisor</label>
+              <input type="text" id="class-teacher" placeholder="e.g. Mr. Smith" autocomplete="off">
+            </div>
+            <div class="form-group">
+              <label for="class-room">Room / Location</label>
+              <input type="text" id="class-room" placeholder="e.g. Room 101" autocomplete="off">
+            </div>
+            <div class="form-group">
+              <label for="class-period">Period / Time</label>
+              <input type="text" id="class-period" placeholder="e.g. 1 or Monday" autocomplete="off">
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button type="button" class="btn btn-secondary" id="cancel-edit-class">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="class-form-submit">Add Group</button>
+          </div>
+        </form>
+      </div>
     </div>
   </div>
 

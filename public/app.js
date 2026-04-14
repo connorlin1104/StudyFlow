@@ -557,9 +557,19 @@ function updateSettingsLabels() {
   const editId = document.getElementById('edit-class-id').value;
   if (!editId) {
     const singular = singularize(name);
-    document.getElementById('class-form-title').textContent  = `Add New ${singular}`;
+    document.getElementById('group-form-title').textContent  = `Add New ${singular}`;
     document.getElementById('class-form-submit').textContent = `Add ${singular}`;
   }
+}
+
+function openGroupForm() {
+  document.getElementById('group-form-modal').classList.add('modal--open');
+  document.getElementById('class-name').focus();
+}
+
+function closeGroupForm() {
+  document.getElementById('group-form-modal').classList.remove('modal--open');
+  resetClassForm();
 }
 
 function resetClassForm() {
@@ -572,16 +582,15 @@ function resetClassForm() {
 }
 
 function startEditClass(cls) {
-  document.getElementById('edit-class-id').value          = cls.id;
-  document.getElementById('class-name').value             = cls.name    || '';
-  document.getElementById('class-teacher').value          = cls.teacher || '';
-  document.getElementById('class-room').value             = cls.room    || '';
-  document.getElementById('class-period').value           = cls.period  || '';
-  document.getElementById('class-form-title').textContent  = 'Edit Group';
+  document.getElementById('edit-class-id').value           = cls.id;
+  document.getElementById('class-name').value              = cls.name    || '';
+  document.getElementById('class-teacher').value           = cls.teacher || '';
+  document.getElementById('class-room').value              = cls.room    || '';
+  document.getElementById('class-period').value            = cls.period  || '';
+  document.getElementById('group-form-title').textContent  = 'Edit Group';
   document.getElementById('class-form-submit').textContent = 'Save Changes';
-  document.getElementById('cancel-edit-class').classList.remove('hidden');
   selectSwatch(cls.color || PRESET_COLORS[4]);
-  document.getElementById('class-name').focus();
+  openGroupForm();
 }
 
 /* =============================================================================
@@ -649,7 +658,7 @@ async function handleClassFormSubmit(e) {
       state.classes.push(created);
       toast(`Added group "${data.name}"`, 'success');
     }
-    resetClassForm();
+    closeGroupForm();
     renderSettingsClassList();
     renderSchedule();
     renderSummary();
@@ -858,7 +867,10 @@ function wireEvents() {
   document.getElementById('close-settings').addEventListener('click', closeSettings);
   document.getElementById('settings-backdrop').addEventListener('click', closeSettings);
   document.getElementById('class-form').addEventListener('submit', handleClassFormSubmit);
-  document.getElementById('cancel-edit-class').addEventListener('click', resetClassForm);
+  document.getElementById('cancel-edit-class').addEventListener('click', closeGroupForm);
+  document.getElementById('add-group-btn').addEventListener('click', () => { resetClassForm(); openGroupForm(); });
+  document.getElementById('close-group-form').addEventListener('click', closeGroupForm);
+  document.getElementById('group-form-backdrop').addEventListener('click', closeGroupForm);
   document.getElementById('tab-form').addEventListener('submit', handleAddTab);
   document.getElementById('settings-tab-select').addEventListener('change', () => {
     renderSettingsClassList();
@@ -922,7 +934,7 @@ function wireEvents() {
     if (mod && e.key==='z' && !e.shiftKey) { e.preventDefault(); history.undo(); return; }
     if (mod && (e.key==='y' || (e.key==='z' && e.shiftKey))) { e.preventDefault(); history.redo(); return; }
     if (e.key==='Escape') {
-      closeHwModal(); closeSettings();
+      closeHwModal(); closeSettings(); closeGroupForm();
       closeModal('whats-new-modal'); closeModal('privacy-modal');
     }
   });
