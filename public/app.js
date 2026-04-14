@@ -37,7 +37,11 @@ const api = {
     async list() {
       const snap = await getDocs(userCol('tabs'));
       const tabs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      tabs.sort((a, b) => (a.createdAt?.seconds ?? 0) - (b.createdAt?.seconds ?? 0));
+      // createdAt may be a Firestore Timestamp (has .seconds) or an ISO string (migrated data)
+      tabs.sort((a, b) => {
+        const ts = v => v?.seconds ?? (v ? new Date(v).getTime() / 1000 : 0);
+        return ts(a.createdAt) - ts(b.createdAt);
+      });
       return tabs;
     },
     async create(body) {
@@ -292,8 +296,17 @@ async function loadUserData() {
     state.activeTabId = tabs.length > 0 ? tabs[0].id : null;
     renderTabBar(); renderSchedule(); renderSummary();
   } catch (err) {
-    toast(`Failed to load data: ${err.message}`, 'error');
-    console.error(err);
+    console.error('loadUserData failed:', err);
+    // Show a persistent banner so the user knows something is wrong
+    const container = document.getElementById('classes-container');
+    const emptyState = document.getElementById('empty-state');
+    emptyState.classList.add('hidden');
+    container.innerHTML = `
+      <div style="padding:32px;text-align:center;color:#ef4444;">
+        <strong>Could not load your data.</strong><br>
+        <span style="font-size:0.85rem;color:#64748b;">${err.message}</span><br><br>
+        <button class="btn btn-secondary" onclick="location.reload()">Retry</button>
+      </div>`;
   }
 }
 
@@ -706,31 +719,33 @@ async function migrateLocalData() {
   catch { toast('Invalid JSON — paste the full contents of db.json', 'error'); return; }
 
   try {
-    const batch = writeBatch(db);
-    let ops = 0;
-    for (const tab of (data.tabs || [])) {
-      const { id, ...fields } = tab;
-      batch.set(userDoc('tabs', id), fields);
-      ops++;
-    }
-    for (const [i, cls] of (data.classes || []).entries()) {
-      const { id, ...fields } = cls;
-      batch.set(userDoc('classes', id), { ...fields, order: i });
-      ops++;
-    }
-    for (const hw of (data.homework || [])) {
-      const { id, ...fields } = hw;
-      batch.set(userDoc('homework', id), fields);
-      ops++;
-    }
+    const allTabs  = data.tabs     || [];
+    const allCls   = data.classes  || [];
+    const allHw    = data.homework || [];
+    const ops = allTabs.length + allCls.length + allHw.length;
     if (ops === 0) { toast('Nothing found to import.', 'warning'); return; }
-    await batch.commit();
+
+    // Firestore batches are limited to 500 ops — chunk if needed
+    const MAX = 499;
+    const allOps = [
+      ...allTabs.map((t, _i) => ({ col: 'tabs',     id: t.id, fields: (({ id, ...f }) => f)(t) })),
+      ...allCls.map((c,  i)  => ({ col: 'classes',  id: c.id, fields: (({ id, ...f }) => ({ ...f, order: i }))(c) })),
+      ...allHw.map((h,  _i) => ({ col: 'homework',  id: h.id, fields: (({ id, ...f }) => f)(h) }))
+    ];
+
+    for (let start = 0; start < allOps.length; start += MAX) {
+      const chunk = allOps.slice(start, start + MAX);
+      const batch = writeBatch(db);
+      chunk.forEach(({ col, id, fields }) => batch.set(userDoc(col, id), fields));
+      await batch.commit();
+    }
+
     document.getElementById('migration-json').value = '';
     toast(`Imported ${ops} records successfully!`, 'success');
     await loadUserData();
   } catch (err) {
-    toast(`Import failed: ${err.message}`, 'error');
-    console.error(err);
+    console.error('Migration failed:', err);
+    alert(`Import failed: ${err.message}\n\nCheck the browser console (F12) for details.\nMake sure you have run "firebase deploy" to activate Firestore security rules.`);
   }
 }
 
