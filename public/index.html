@@ -55,9 +55,7 @@
         </svg>
       </button>
       <div class="user-area">
-        <img id="user-avatar" class="user-avatar" src="" alt="">
-        <span id="user-name" class="user-name"></span>
-        <button id="sign-out-btn" class="btn-sign-out">Sign out</button>
+        <img id="user-avatar" class="user-avatar" src="" alt="" title="Account settings">
       </div>
     </div>
   </header>
@@ -148,13 +146,85 @@
 
         <!-- LEFT SIDEBAR -->
         <nav class="settings-sidebar">
+          <button class="settings-nav-item" data-page="account">Account</button>
+          <button class="settings-nav-item" data-page="preferences">Preferences</button>
+          <div class="settings-nav-divider"></div>
           <button class="settings-nav-item" data-page="tabs">Managing Tabs</button>
-          <button class="settings-nav-item settings-nav--active" data-page="classes">Managing Groups</button>
+          <button class="settings-nav-item" data-page="classes">Managing Groups</button>
+          <div class="settings-nav-divider"></div>
           <button class="settings-nav-item" data-page="help">Help</button>
         </nav>
 
         <!-- RIGHT CONTENT -->
         <div class="settings-content">
+
+          <!-- PAGE: Account -->
+          <div id="settings-page-account" class="settings-page hidden">
+            <div class="settings-section">
+              <div class="account-profile">
+                <img id="settings-avatar" class="account-avatar" src="" alt="">
+                <div class="account-info">
+                  <span id="settings-user-name" class="account-name"></span>
+                  <span id="settings-user-email" class="account-email"></span>
+                </div>
+              </div>
+            </div>
+            <div class="settings-section">
+              <button class="btn btn-secondary" id="settings-sign-out-btn">Sign out</button>
+            </div>
+          </div>
+
+          <!-- PAGE: Preferences -->
+          <div id="settings-page-preferences" class="settings-page hidden">
+            <div class="settings-section">
+              <h3 class="settings-section-label">Theme</h3>
+              <div class="theme-cards" id="theme-cards">
+                <button class="theme-card" data-theme="light">
+                  <div class="theme-preview theme-preview--light"></div>
+                  <span>Light</span>
+                </button>
+                <button class="theme-card" data-theme="dark">
+                  <div class="theme-preview theme-preview--dark"></div>
+                  <span>Dark</span>
+                </button>
+                <button class="theme-card" data-theme="sepia">
+                  <div class="theme-preview theme-preview--sepia"></div>
+                  <span>Sepia</span>
+                </button>
+                <button class="theme-card" data-theme="high-contrast">
+                  <div class="theme-preview theme-preview--hc"></div>
+                  <span>High Contrast</span>
+                </button>
+              </div>
+            </div>
+            <div class="settings-section">
+              <h3 class="settings-section-label">Accent Color</h3>
+              <div class="accent-swatches" id="accent-swatches"></div>
+            </div>
+            <div class="settings-section">
+              <h3 class="settings-section-label">Layout</h3>
+              <div class="pref-row">
+                <div class="pref-info">
+                  <span class="pref-label">Compact mode</span>
+                  <span class="pref-desc">Reduce spacing to fit more on screen</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="pref-compact">
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
+              <div class="pref-row">
+                <div class="pref-info">
+                  <span class="pref-label">Show upcoming panel</span>
+                  <span class="pref-desc">Display the upcoming assignments sidebar</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="pref-summary" checked>
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
+            </div>
+          </div>
 
           <!-- PAGE: Managing Tabs -->
           <div id="settings-page-tabs" class="settings-page hidden">
@@ -209,6 +279,18 @@
                   </div>
                   <span class="help-item-arrow">&#x2197;</span>
                 </a>
+              </div>
+            </div>
+            <hr class="divider">
+            <div class="settings-section">
+              <h3 class="settings-section-label">Schedule Transfer</h3>
+              <p class="settings-empty" style="margin-bottom:12px">Download your schedule to back it up or move it to another account. Load a previously saved file to restore it.</p>
+              <div class="transfer-actions">
+                <button class="btn btn-sm btn-primary" id="download-schedule-btn">&#x2913; Download Schedule</button>
+                <label class="btn btn-sm btn-secondary transfer-upload-label">
+                  &#x2912; Load Schedule
+                  <input type="file" id="load-schedule-input" accept=".json" style="display:none">
+                </label>
               </div>
             </div>
           </div>
@@ -283,42 +365,52 @@
       </div>
       <div class="release-notes">
         <div class="release-block">
+          <h3 class="release-version">v1.4 &mdash; April 2026</h3>
+          <ul>
+            <li>Google sign-in via Firebase Auth &mdash; your data stays on your own device</li>
+            <li>Account page in Settings &mdash; profile info and sign-out</li>
+            <li>Preferences &mdash; Light, Dark, Sepia, and High Contrast themes; 7 accent colors; compact mode; summary panel toggle</li>
+            <li>Schedule Transfer &mdash; download your schedule as a JSON file or load one to restore or move to another account</li>
+            <li>Upcoming panel expands to fill the screen when hidden via Preferences</li>
+            <li>Edit and Done buttons on each item in the Upcoming panel</li>
+            <li>Long assignment names now wrap instead of being cut off</li>
+          </ul>
+        </div>
+        <div class="release-block">
           <h3 class="release-version">v1.3 &mdash; April 2026</h3>
           <ul>
-            <li>Settings sidebar with <strong>Managing Tabs</strong> and <strong>Managing Classes</strong> pages</li>
-            <li>Edit button on each tab jumps directly to its classes</li>
-            <li>Form title and button reflect the active tab (e.g. <em>Add New Club</em>)</li>
-            <li>Colors auto-select the next unused preset when adding a group</li>
-            <li>Homework in each group is now sorted by due date</li>
-            <li>Cleaner + Add button and bolder action buttons</li>
+            <li>Settings sidebar with Managing Tabs and Managing Groups pages</li>
+            <li>Group form moved to a popup modal</li>
+            <li>Help section &mdash; What&rsquo;s New, Terms &amp; Privacy, and Bug Report link</li>
+            <li>Tab labels use singular form in the group form (e.g. <em>Add New Club</em>)</li>
+            <li>Homework in each group sorted by due date</li>
+            <li>Cleaner button styles across the app</li>
           </ul>
         </div>
         <div class="release-block">
-          <h3 class="release-version">v1.2 &mdash; March 2026</h3>
+          <h3 class="release-version">v1.2 &mdash; April 2026</h3>
           <ul>
             <li>Tabs for organizing different groups (Classes, Clubs, etc.)</li>
-            <li>Summary panel &mdash; all upcoming assignments sorted by date, color-coded</li>
-            <li>Drag-to-reorder groups inside Settings</li>
+            <li>Split-screen layout &mdash; schedule on the left, Upcoming panel on the right</li>
+            <li>Upcoming panel shows all pending assignments sorted by date, color-coded by group</li>
             <li>Edit button (&#x270E;) on each assignment reopens the pre-filled form</li>
-            <li>Per-group quick <strong>+ Add</strong> button in the class header</li>
-            <li>Data persists across updates &mdash; <code>db.json</code> is git-ignored</li>
+            <li>Per-group quick <strong>+ Add</strong> button in each group header</li>
           </ul>
         </div>
         <div class="release-block">
-          <h3 class="release-version">v1.1 &mdash; February 2026</h3>
+          <h3 class="release-version">v1.1 &mdash; April 2026</h3>
           <ul>
             <li>Undo / Redo for deletions and completions (<kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd>)</li>
-            <li>Period field normalizes any input (e.g. "1" or "one" → "1st Period")</li>
-            <li>Toast notifications now include the assignment name</li>
-            <li>Larger deadline field and bigger settings gear button</li>
+            <li>Period field normalizes any input (e.g. &ldquo;1&rdquo; or &ldquo;one&rdquo; &rarr; &ldquo;1st Period&rdquo;)</li>
+            <li>Toast notifications include the assignment name</li>
           </ul>
         </div>
         <div class="release-block">
-          <h3 class="release-version">v1.0 &mdash; January 2026</h3>
+          <h3 class="release-version">v1.0 &mdash; April 2026</h3>
           <ul>
-            <li>Initial release: color-coded class rows with teacher, room, and period info</li>
+            <li>Initial release: color-coded group rows with teacher, room, and period info</li>
             <li>Homework tracking with optional deadlines and notes</li>
-            <li>Node.js / Express backend with file-based storage</li>
+            <li>Node.js / Express backend with local file-based storage</li>
           </ul>
         </div>
       </div>

@@ -92,6 +92,40 @@ function updateHistoryBtns() {
 }
 
 /* =============================================================================
+   PREFERENCES (persisted to localStorage)
+   ============================================================================= */
+const ACCENT_OPTIONS = [
+  { label: 'Blue',   value: '#3b82f6', hover: '#2563eb' },
+  { label: 'Indigo', value: '#6366f1', hover: '#4f46e5' },
+  { label: 'Purple', value: '#8b5cf6', hover: '#7c3aed' },
+  { label: 'Rose',   value: '#f43f5e', hover: '#e11d48' },
+  { label: 'Orange', value: '#f97316', hover: '#ea580c' },
+  { label: 'Green',  value: '#22c55e', hover: '#16a34a' },
+  { label: 'Teal',   value: '#14b8a6', hover: '#0d9488' },
+];
+
+const prefs = {
+  _data: JSON.parse(localStorage.getItem('sf-prefs') || '{}'),
+  get(key, def) { return key in this._data ? this._data[key] : def; },
+  set(key, val) { this._data[key] = val; localStorage.setItem('sf-prefs', JSON.stringify(this._data)); }
+};
+
+function applyPrefs() {
+  const theme = prefs.get('theme', 'light');
+  document.documentElement.setAttribute('data-theme', theme);
+
+  const accent = ACCENT_OPTIONS.find(a => a.value === prefs.get('accent', '#3b82f6')) || ACCENT_OPTIONS[0];
+  document.documentElement.style.setProperty('--primary', accent.value);
+  document.documentElement.style.setProperty('--primary-hover', accent.hover);
+
+  document.body.classList.toggle('pref-compact', prefs.get('compact', false));
+
+  const showSummary = prefs.get('showSummary', true);
+  const panel = document.querySelector('.summary-panel');
+  if (panel) panel.classList.toggle('hidden', !showSummary);
+}
+
+/* =============================================================================
    CONSTANTS
    ============================================================================= */
 const PRESET_COLORS = [
@@ -204,7 +238,7 @@ function renderTabBar() {
   addBtn.className = 'tab tab--add';
   addBtn.title = 'Add or manage tabs';
   addBtn.textContent = '+';
-  addBtn.addEventListener('click', openSettings);
+  addBtn.addEventListener('click', () => openSettings('tabs'));
   list.appendChild(addBtn);
 }
 
@@ -343,15 +377,22 @@ function renderSummary() {
     item.style.setProperty('--color', cls.color || '#94a3b8');
     const metaParts = [cls.name];
     if (tab && tab.id !== 'classes') metaParts.push(tab.name);
+    const badgeHtml = dl
+      ? `<span class="deadline-badge ${deadlineCssClass(dl.diff)}">${esc(dl.label)}</span>`
+      : `<span class="deadline-badge deadline--ok">No date</span>`;
     item.innerHTML = `
       <div class="summary-color-bar"></div>
       <div class="summary-body">
         <span class="summary-desc">${esc(hw.description)}</span>
         <span class="summary-meta">${esc(metaParts.join(' · '))}</span>
       </div>
-      ${dl
-        ? `<span class="deadline-badge ${deadlineCssClass(dl.diff)}">${esc(dl.label)}</span>`
-        : `<span class="deadline-badge deadline--ok">No date</span>`}
+      <div class="summary-aside">
+        ${badgeHtml}
+        <div class="summary-actions">
+          <button class="summary-btn summary-btn--edit" data-hw-id="${hw.id}" title="Edit">&#9998; Edit</button>
+          <button class="summary-btn summary-btn--done" data-hw-id="${hw.id}" title="Mark complete">&#10003; Done</button>
+        </div>
+      </div>
     `;
     list.appendChild(item);
   });
@@ -539,12 +580,14 @@ function closeHwModal() {
 /* =============================================================================
    SETTINGS MODAL
    ============================================================================= */
-function openSettings() {
+function openSettings(page = 'account') {
   populateSettingsTabSelect(state.activeTabId);
   resetClassForm();
   renderSettingsTabsList();
   renderSettingsClassList();
-  switchSettingsPage('classes');
+  renderAccountPage();
+  renderPrefsPage();
+  switchSettingsPage(page);
   document.getElementById('settings-modal').classList.add('modal--open');
 }
 function closeSettings() { document.getElementById('settings-modal').classList.remove('modal--open'); }
@@ -556,13 +599,55 @@ function populateSettingsTabSelect(selectValue) {
 }
 
 function switchSettingsPage(page) {
-  ['tabs', 'classes', 'help'].forEach(p => {
+  ['tabs', 'classes', 'account', 'preferences', 'help'].forEach(p => {
     document.getElementById(`settings-page-${p}`).classList.toggle('hidden', page !== p);
   });
   document.querySelectorAll('.settings-nav-item').forEach(btn => {
     btn.classList.toggle('settings-nav--active', btn.dataset.page === page);
   });
   if (page === 'classes') updateSettingsLabels();
+}
+
+function renderAccountPage() {
+  if (!currentUser) return;
+  const avatar = document.getElementById('settings-avatar');
+  const name   = document.getElementById('settings-user-name');
+  const email  = document.getElementById('settings-user-email');
+  if (currentUser.photoURL) { avatar.src = currentUser.photoURL; avatar.alt = currentUser.displayName || ''; }
+  if (currentUser.displayName) name.textContent = currentUser.displayName;
+  if (currentUser.email) email.textContent = currentUser.email;
+}
+
+function renderPrefsPage() {
+  // Highlight active theme card
+  document.querySelectorAll('.theme-card').forEach(card => {
+    card.classList.toggle('theme-card--active', card.dataset.theme === prefs.get('theme', 'light'));
+  });
+  // Highlight active accent
+  document.querySelectorAll('.accent-swatch').forEach(sw => {
+    sw.classList.toggle('accent-swatch--active', sw.dataset.accent === prefs.get('accent', '#3b82f6'));
+  });
+  // Sync toggles
+  document.getElementById('pref-compact').checked  = prefs.get('compact', false);
+  document.getElementById('pref-summary').checked  = prefs.get('showSummary', true);
+}
+
+function initAccentSwatches() {
+  const container = document.getElementById('accent-swatches');
+  ACCENT_OPTIONS.forEach(opt => {
+    const sw = document.createElement('button');
+    sw.type = 'button';
+    sw.className = 'accent-swatch';
+    sw.dataset.accent = opt.value;
+    sw.style.background = opt.value;
+    sw.title = opt.label;
+    sw.addEventListener('click', () => {
+      prefs.set('accent', opt.value);
+      applyPrefs();
+      renderPrefsPage();
+    });
+    container.appendChild(sw);
+  });
 }
 
 function updateSettingsLabels() {
@@ -864,12 +949,108 @@ async function handleDeleteClass(classId) {
 }
 
 /* =============================================================================
+   SCHEDULE TRANSFER
+   ============================================================================= */
+function downloadSchedule() {
+  const idMap = {};
+  state.classes.forEach(c => { idMap[c.id] = c.id; });
+
+  const data = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    tabs: state.tabs.map(({ id, createdAt: _c, ...rest }) => ({ _origId: id, ...rest })),
+    classes: state.classes.map(({ id, createdAt: _c, ...rest }) => ({ _origId: id, ...rest })),
+    homework: state.homework
+      .filter(h => !h.completed)
+      .map(({ id, createdAt: _c, completed: _co, ...rest }) => ({ _origId: id, ...rest }))
+  };
+
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `studyflow-schedule-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('Schedule downloaded', 'success');
+}
+
+async function loadSchedule(file) {
+  let data;
+  try {
+    data = JSON.parse(await file.text());
+  } catch {
+    toast('Invalid file — could not parse JSON', 'error');
+    return;
+  }
+  if (!data.tabs || !data.classes) {
+    toast('Invalid schedule file', 'error');
+    return;
+  }
+  if (!confirm('This will replace your current schedule. Continue?')) return;
+
+  try {
+    // Delete existing data
+    await Promise.all(state.homework.map(h => api.homework.remove(h.id)));
+    await Promise.all(state.classes.map(c => api.classes.remove(c.id)));
+    const nonDefaultTabs = state.tabs.filter(t => t.id !== 'classes');
+    await Promise.all(nonDefaultTabs.map(t => api.tabs.remove(t.id)));
+
+    state.tabs     = state.tabs.filter(t => t.id === 'classes');
+    state.classes  = [];
+    state.homework = [];
+
+    // Rebuild with new IDs, tracking the old→new mapping
+    const tabIdMap = { classes: 'classes' };
+    for (const t of data.tabs) {
+      const { _origId, ...body } = t;
+      if (_origId === 'classes') { tabIdMap['classes'] = 'classes'; continue; }
+      const created = await api.tabs.create(body);
+      state.tabs.push(created);
+      tabIdMap[_origId] = created.id;
+    }
+
+    const clsIdMap = {};
+    for (const c of data.classes) {
+      const { _origId, tabId, ...body } = c;
+      const newTabId = tabIdMap[tabId] ?? 'classes';
+      const created  = await api.classes.create({ ...body, tabId: newTabId });
+      state.classes.push(created);
+      clsIdMap[_origId] = created.id;
+    }
+
+    for (const h of (data.homework || [])) {
+      const { _origId, classId, ...body } = h;
+      const newClassId = clsIdMap[classId];
+      if (!newClassId) continue;
+      const created = await api.homework.create({ ...body, classId: newClassId });
+      state.homework.push(created);
+    }
+
+    if (!state.activeTabId || !state.tabs.find(t => t.id === state.activeTabId)) {
+      state.activeTabId = state.tabs[0]?.id ?? 'classes';
+    }
+    renderTabBar();
+    renderSchedule();
+    renderSummary();
+    populateSettingsTabSelect(state.activeTabId);
+    renderSettingsTabsList();
+    renderSettingsClassList();
+    toast('Schedule loaded successfully', 'success');
+  } catch (err) {
+    toast(`Import failed: ${err.message}`, 'error');
+    console.error(err);
+  }
+}
+
+/* =============================================================================
    WIRE EVENTS
    ============================================================================= */
 function wireEvents() {
   document.getElementById('add-hw-btn').addEventListener('click', () => openHwModal());
-  document.getElementById('settings-btn').addEventListener('click', openSettings);
-  document.getElementById('empty-settings-btn').addEventListener('click', openSettings);
+  document.getElementById('settings-btn').addEventListener('click', () => openSettings('account'));
+  document.getElementById('empty-settings-btn').addEventListener('click', () => openSettings('classes'));
+  document.getElementById('user-avatar').addEventListener('click', () => openSettings('account'));
 
   document.getElementById('undo-btn').addEventListener('click', () => history.undo());
   document.getElementById('redo-btn').addEventListener('click', () => history.redo());
@@ -896,7 +1077,34 @@ function wireEvents() {
   });
 
   document.querySelectorAll('.settings-nav-item').forEach(btn => {
-    btn.addEventListener('click', () => switchSettingsPage(btn.dataset.page));
+    btn.addEventListener('click', () => { if (btn.dataset.page) switchSettingsPage(btn.dataset.page); });
+  });
+
+  // Account page
+  document.getElementById('settings-sign-out-btn').addEventListener('click', () => auth.signOut());
+
+  // Preferences page
+  document.getElementById('theme-cards').addEventListener('click', e => {
+    const card = e.target.closest('.theme-card');
+    if (!card) return;
+    prefs.set('theme', card.dataset.theme);
+    applyPrefs();
+    renderPrefsPage();
+  });
+  document.getElementById('pref-compact').addEventListener('change', e => {
+    prefs.set('compact', e.target.checked);
+    applyPrefs();
+  });
+  document.getElementById('pref-summary').addEventListener('change', e => {
+    prefs.set('showSummary', e.target.checked);
+    applyPrefs();
+  });
+
+  // Schedule transfer
+  document.getElementById('download-schedule-btn').addEventListener('click', downloadSchedule);
+  document.getElementById('load-schedule-input').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (file) { loadSchedule(file); e.target.value = ''; }
   });
 
   document.getElementById('settings-tabs-list').addEventListener('click', e => {
@@ -932,6 +1140,14 @@ function wireEvents() {
     if (addBtn)  openHwModal(addBtn.dataset.classId);
   });
 
+  // Summary panel — edit and complete buttons
+  document.getElementById('summary-list').addEventListener('click', e => {
+    const editBtn = e.target.closest('.summary-btn--edit');
+    const doneBtn = e.target.closest('.summary-btn--done');
+    if (editBtn) openHwEditModal(editBtn.dataset.hwId);
+    if (doneBtn) handleMarkComplete(doneBtn.dataset.hwId);
+  });
+
   // Help section modals
   function openModal(id)  { document.getElementById(id).classList.add('modal--open'); }
   function closeModal(id) { document.getElementById(id).classList.remove('modal--open'); }
@@ -963,7 +1179,9 @@ async function init() {
   if (!_appBooted) {
     _appBooted = true;
     initColorSwatches();
+    initAccentSwatches();
     wireEvents();
+    applyPrefs();
   }
   try {
     const [tabs, classes, homework] = await Promise.all([
@@ -999,10 +1217,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Sign-out button
-  document.getElementById('sign-out-btn').addEventListener('click', () => {
-    auth.signOut();
-  });
 
   // Firebase resolves auth state from cache — this fires in ~100ms for returning users
   auth.onAuthStateChanged(user => {
@@ -1012,11 +1226,9 @@ document.addEventListener('DOMContentLoaded', () => {
       authScreen.classList.add('hidden');
       appWrapper.classList.remove('hidden');
 
-      // Populate user info in header
+      // Show avatar in header
       const avatar = document.getElementById('user-avatar');
-      const name   = document.getElementById('user-name');
       if (user.photoURL) { avatar.src = user.photoURL; avatar.alt = user.displayName || ''; }
-      if (user.displayName) name.textContent = user.displayName;
 
       // Load data and boot app
       init();
