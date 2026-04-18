@@ -272,10 +272,13 @@ function renderSchedule() {
   if (tabClasses.length === 0) {
     container.innerHTML = '';
     const activeTab = state.tabs.find(t => t.id === state.activeTabId);
+    const templateHint = document.getElementById('empty-template-hint');
     if (!activeTab) {
       emptyState.querySelector('h2').textContent = 'No tabs yet';
       emptyState.querySelector('p').textContent  = 'Open Settings to add tabs';
+      if (templateHint) templateHint.classList.remove('hidden');
     } else {
+      if (templateHint) templateHint.classList.add('hidden');
       const plural = activeTab.name;
       emptyState.querySelector('h2').textContent = `No ${plural.toLowerCase()} yet`;
       emptyState.querySelector('p').textContent  = `Open Settings to add ${plural.toLowerCase()} to this tab`;
@@ -1203,6 +1206,7 @@ function wireEvents() {
   document.getElementById('add-hw-btn').addEventListener('click', () => openHwModal());
   document.getElementById('settings-btn').addEventListener('click', () => openSettings('account'));
   document.getElementById('empty-settings-btn').addEventListener('click', () => openSettings(state.tabs.length === 0 ? 'tabs' : 'classes'));
+  document.getElementById('empty-template-btn').addEventListener('click', () => openSettings('templates'));
   document.getElementById('user-avatar').addEventListener('click', () => openSettings('account'));
 
   document.getElementById('undo-btn').addEventListener('click', () => history.undo());

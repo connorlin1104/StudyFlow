@@ -8,18 +8,8 @@ const doc = (uid, id) => col(uid).doc(id);
 
 router.get('/', async (req, res) => {
   try {
-    const classesRef = col(req.uid).doc('classes');
     const snap = await col(req.uid).get();
-
-    // Auto-create the Classes tab only for brand-new accounts with no tabs yet
-    if (snap.empty) {
-      await classesRef.set({ name: 'Classes', type: 'classes', order: 0, createdAt: FieldValue.serverTimestamp() });
-    }
-
     const tabs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    if (snap.empty) {
-      tabs.push({ id: 'classes', name: 'Classes', type: 'classes', order: 0 });
-    }
     tabs.sort((a, b) => {
       if (a.order != null && b.order != null) return a.order - b.order;
       if (a.order != null) return -1;

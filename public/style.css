@@ -521,6 +521,9 @@ body {
 .empty-state .empty-icon { font-size: 3rem; margin-bottom: 16px; }
 .empty-state h2 { font-size: 1.2rem; color: var(--text); margin-bottom: 8px; }
 .empty-state p  { margin-bottom: 24px; }
+.empty-template-hint { font-size: .85rem; margin-top: 12px; margin-bottom: 0; }
+.btn-link { background: none; border: none; padding: 0; color: var(--primary); cursor: pointer; font-size: inherit; text-decoration: underline; }
+.btn-link:hover { color: var(--primary-hover); }
 
 /* =============================================================================
    MODALS
