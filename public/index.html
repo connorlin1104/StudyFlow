@@ -74,8 +74,8 @@
         <div id="classes-container"></div>
         <div id="empty-state" class="empty-state hidden">
           <div class="empty-icon">&#x1F4DA;</div>
-          <h2>No groups yet</h2>
-          <p>Open Settings to add groups to this tab.</p>
+          <h2>No Tabs yet</h2>
+          <p>Open Settings to Add Tabs</p>
           <button class="btn btn-primary" id="empty-settings-btn">Open Settings</button>
         </div>
       </div>
@@ -151,6 +151,7 @@
           <div class="settings-nav-divider"></div>
           <button class="settings-nav-item" data-page="tabs">Managing Tabs</button>
           <button class="settings-nav-item" data-page="classes">Managing Groups</button>
+          <button class="settings-nav-item" data-page="templates">Templates</button>
           <div class="settings-nav-divider"></div>
           <button class="settings-nav-item" data-page="help">Help</button>
         </nav>
@@ -194,6 +195,14 @@
                 <button class="theme-card" data-theme="high-contrast">
                   <div class="theme-preview theme-preview--hc"></div>
                   <span>High Contrast</span>
+                </button>
+                <button class="theme-card" data-theme="cyber">
+                  <div class="theme-preview theme-preview--cyber"></div>
+                  <span>Cyber</span>
+                </button>
+                <button class="theme-card" data-theme="neon">
+                  <div class="theme-preview theme-preview--neon"></div>
+                  <span>Neon</span>
                 </button>
               </div>
             </div>
@@ -295,6 +304,34 @@
             </div>
           </div>
 
+          <!-- PAGE: Templates -->
+          <div id="settings-page-templates" class="settings-page hidden">
+            <div class="settings-section">
+              <div class="help-list">
+                <button class="help-item" id="suggest-template-btn">
+                  <span class="help-item-icon">&#x1F4AC;</span>
+                  <div class="help-item-body">
+                    <span class="help-item-title">Suggest a Template</span>
+                    <span class="help-item-desc">Have an idea? Tell us what template to add next</span>
+                  </div>
+                  <span class="help-item-arrow">&#x203A;</span>
+                </button>
+              </div>
+            </div>
+            <div class="settings-section">
+              <div class="help-list">
+                <button class="help-item" id="student-template-btn">
+                  <span class="help-item-icon">&#x1F393;</span>
+                  <div class="help-item-body">
+                    <span class="help-item-title">Student Template</span>
+                    <span class="help-item-desc">4 core subjects + 4 electives in a Classes tab</span>
+                  </div>
+                  <span class="help-item-arrow">&#x203A;</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
 
@@ -365,13 +402,25 @@
       </div>
       <div class="release-notes">
         <div class="release-block">
+          <h3 class="release-version">v1.5 &mdash; April 2026</h3>
+          <ul>
+            <li>Cyber and Neon themes added to Preferences</li>
+            <li>Drag-to-reorder tabs in Settings &mdash; order is saved and persists across sessions</li>
+            <li>Tab Edit button now renames the tab inline &mdash; no longer navigates to Managing Groups</li>
+            <li>Templates page &mdash; apply a Student Template (4 core subjects + 4 electives) or suggest a new template via Google Form</li>
+            <li>Toast messages now use the specific group type (e.g. &ldquo;Deleted Club Robotics&rdquo;)</li>
+            <li>&ldquo;A&rdquo; vs &ldquo;an&rdquo; article is now correct throughout the app</li>
+            <li>Data is stored in Firestore (cloud) &mdash; accessible from any device after signing in</li>
+          </ul>
+        </div>
+        <div class="release-block">
           <h3 class="release-version">v1.4 &mdash; April 2026</h3>
           <ul>
-            <li>Google sign-in via Firebase Auth &mdash; your data stays on your own device</li>
+            <li>Google sign-in via Firebase Auth</li>
             <li>Account page in Settings &mdash; profile info and sign-out</li>
             <li>Preferences &mdash; Light, Dark, Sepia, and High Contrast themes; 7 accent colors; compact mode; summary panel toggle</li>
             <li>Schedule Transfer &mdash; download your schedule as a JSON file or load one to restore or move to another account</li>
-            <li>Upcoming panel expands to fill the screen when hidden via Preferences</li>
+            <li>Upcoming panel expands to fill the screen when the summary panel is hidden</li>
             <li>Edit and Done buttons on each item in the Upcoming panel</li>
             <li>Long assignment names now wrap instead of being cut off</li>
           </ul>
@@ -430,12 +479,14 @@
       <div class="privacy-content">
         <p class="privacy-lead">StudyFlow is a personal homework scheduler built for students.</p>
         <h3>Your Data</h3>
-        <p>Everything you enter &mdash; classes, assignments, deadlines &mdash; is stored <strong>only on your own device</strong> in a local file (<code>data/db.json</code>). We do not have servers that collect your information.</p>
+        <p>Everything you enter &mdash; tabs, classes, assignments, deadlines &mdash; is stored in <strong>Google Firestore</strong> under your account. Only you can read or write your own data; Firestore security rules block all cross-user access.</p>
+        <h3>Sign-in</h3>
+        <p>StudyFlow uses <strong>Google Sign-In</strong> via Firebase Auth. We only receive your name, email address, and profile photo from Google to display in the Account panel. We do not store passwords.</p>
         <h3>No Tracking</h3>
-        <p>StudyFlow does not use analytics, advertising, or any third-party tracking. We don't know who you are, what classes you take, or how you use the app.</p>
-        <h3>No Accounts</h3>
-        <p>There are no accounts, no sign-ins, and no passwords. Your data never leaves your machine unless you choose to share the file yourself.</p>
-        <p class="privacy-footer-note">We don&rsquo;t collect or sell your data &mdash; we only use it to show your schedule.</p>
+        <p>StudyFlow does not use analytics, advertising, or any third-party tracking beyond Firebase services (Auth and Firestore). We do not sell your data or share it with anyone.</p>
+        <h3>Data Deletion</h3>
+        <p>Deleting a tab removes all its classes and assignments from Firestore immediately. To delete your entire account and all associated data, use the Schedule Transfer page to export first, then contact us.</p>
+        <p class="privacy-footer-note">Your data is stored in your Google account &mdash; we don&rsquo;t sell or share it.</p>
       </div>
     </div>
   </div>

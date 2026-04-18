@@ -1,76 +1,95 @@
 # StudyFlow — Homework Scheduler
 
-A color-coded homework tracker built with Node.js and vanilla HTML/CSS/JS.
-Each class gets its own row and color. Add assignments in two clicks, manage
-class details separately under Settings.
+A color-coded homework and schedule tracker for students. Built with Node.js, Express, Firebase Hosting, and Firestore.
 
-## Quick Start
+Sign in with Google, organize your classes into custom tabs, add assignments with deadlines, and access your schedule from any device.
 
-```bash
-make install   # install dependencies
-make start     # run at http://localhost:3000
-make dev       # run with auto-reload (nodemon)
-```
+## Live App
 
-Or without Make:
+[https://studyflow-38a6b.web.app](https://studyflow-38a6b.web.app)
+
+## Stack
+
+- **Frontend** — Vanilla HTML / CSS / JS, Firebase Auth (compat SDK)
+- **Backend** — Express.js REST API deployed as a Firebase Cloud Function
+- **Database** — Firestore (per-user collections, secured by Auth)
+- **Hosting** — Firebase Hosting with `/api/**` rewritten to the Cloud Function
+
+## Local Development
 
 ```bash
 npm install
-npm start
+npm start        # http://localhost:3000
+npm run dev      # auto-reload with nodemon
 ```
 
-## Features
+> Local dev uses `src/` routes and `src/firebaseAdmin.js` with a service account key at `config.js` (git-ignored).
 
-- **Color-coded class rows** — each class has a unique color set in Settings
-- **Quick homework entry** — prominent "+ Add Homework" button; asks for class,
-  description, optional notes, and optional deadline
-- **Deadline urgency badges** — overdue (red), due today (orange), due soon (yellow)
-- **Complete / delete** assignments inline
-- **Class Settings** — separate panel for adding/editing/removing classes and
-  their metadata (teacher, room, period). These details rarely change, so they
-  live out of the way
-- **Show completed** toggle in the header
+## Deploy
+
+```bash
+firebase deploy --only functions,hosting
+```
+
+To deploy just the frontend:
+
+```bash
+firebase deploy --only hosting
+```
 
 ## Project Structure
 
 ```
 StudyFlow/
-├── server.js               # Express entry point
+├── server.js                   # Local Express entry point
 ├── src/
-│   ├── routes/
-│   │   ├── classes.js      # REST endpoints for classes
-│   │   └── homework.js     # REST endpoints for homework
-│   ├── store/
-│   │   └── dataStore.js    # File-based JSON storage (swap for DB here)
-│   └── middleware/
-│       └── errorHandler.js
+│   └── routes/
+│       ├── tabs.js             # REST endpoints for tabs
+│       ├── classes.js          # REST endpoints for classes/groups
+│       └── homework.js         # REST endpoints for homework
+├── functions/
+│   ├── index.js                # Cloud Function entry point
+│   └── src/
+│       ├── firebaseAdmin.js    # Admin SDK init (default credentials)
+│       └── routes/             # Same routes as src/ — keep in sync
 ├── public/
 │   ├── index.html
 │   ├── style.css
-│   └── app.js              # All frontend logic; API calls isolated in `api` object
-├── data/
-│   └── db.json             # Auto-created on first run (git-ignored)
-├── Makefile
+│   └── app.js                  # All frontend logic; API calls in `api` object
+├── firebase.json               # Hosting rewrites + cache headers
+├── firestore.rules
 └── package.json
 ```
 
 ## API
 
-| Method | Endpoint             | Body / Query               | Description           |
-|--------|----------------------|----------------------------|-----------------------|
-| GET    | /api/classes         | —                          | List all classes      |
-| POST   | /api/classes         | `{name, color, teacher, room, period}` | Create class |
-| PUT    | /api/classes/:id     | same fields                | Update class          |
-| DELETE | /api/classes/:id     | —                          | Delete class + its HW |
-| GET    | /api/homework        | `?classId=` (optional)     | List homework         |
-| POST   | /api/homework        | `{classId, description, notes?, deadline?}` | Add homework |
-| PUT    | /api/homework/:id    | `{description?, notes?, deadline?, completed?}` | Update |
-| DELETE | /api/homework/:id    | —                          | Delete                |
+All endpoints require a Firebase ID token in `Authorization: Bearer <token>`.
 
-## Adding an External API Later
+| Method | Endpoint              | Body                                              | Description                        |
+|--------|-----------------------|---------------------------------------------------|------------------------------------|
+| GET    | /api/tabs             | —                                                 | List tabs (sorted by order)        |
+| POST   | /api/tabs             | `{name}`                                          | Create tab                         |
+| PUT    | /api/tabs/:id         | `{name}`                                          | Rename tab                         |
+| DELETE | /api/tabs/:id         | —                                                 | Delete tab + its classes + their HW|
+| POST   | /api/tabs/reorder     | `{order: [id, ...]}`                              | Persist drag-to-reorder            |
+| GET    | /api/classes          | —                                                 | List classes (sorted by order)     |
+| POST   | /api/classes          | `{name, color, tabId, teacher?, room?, period?}`  | Create class                       |
+| PUT    | /api/classes/:id      | same fields                                       | Update class                       |
+| DELETE | /api/classes/:id      | —                                                 | Delete class + its HW              |
+| POST   | /api/classes/reorder  | `{order: [id, ...]}`                              | Persist drag-to-reorder            |
+| GET    | /api/homework         | —                                                 | List all homework                  |
+| POST   | /api/homework         | `{classId, description, notes?, deadline?}`       | Add homework                       |
+| PUT    | /api/homework/:id     | `{description?, notes?, deadline?, completed?}`   | Update homework                    |
+| DELETE | /api/homework/:id     | —                                                 | Delete homework                    |
 
-- **Backend:** Replace `src/store/dataStore.js` with async DB/API calls. Route
-  handlers only need `await` keywords added; the URL structure stays the same.
-- **Frontend:** The `api` object in `public/app.js` wraps every `fetch()` call.
-  To point to an external service, only that object needs updating — the rest
-  of the frontend is untouched.
+## Data Storage
+
+Each signed-in user's data lives in Firestore under:
+
+```
+users/{uid}/tabs/{tabId}
+users/{uid}/classes/{classId}
+users/{uid}/homework/{hwId}
+```
+
+Firestore security rules ensure users can only read and write their own documents.

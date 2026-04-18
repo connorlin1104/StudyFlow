@@ -7,6 +7,7 @@ const tabRoutes      = require('./src/routes/tabs');
 const classRoutes    = require('./src/routes/classes');
 const homeworkRoutes = require('./src/routes/homework');
 const errorHandler   = require('./src/middleware/errorHandler');
+const requireAuth    = require('./src/middleware/auth');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -18,9 +19,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 // To integrate an external API (Google Classroom, Canvas, etc.), replace the
 // route handlers in src/routes/ while keeping the same URL structure so the
 // frontend requires zero changes.
-app.use('/api/tabs',     tabRoutes);
-app.use('/api/classes',  classRoutes);
-app.use('/api/homework', homeworkRoutes);
+app.use('/api/tabs',     requireAuth, tabRoutes);
+app.use('/api/classes',  requireAuth, classRoutes);
+app.use('/api/homework', requireAuth, homeworkRoutes);
 
 app.use(errorHandler);
 

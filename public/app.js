@@ -2,105 +2,56 @@
 
 /* =============================================================================
    FIREBASE AUTH — compat SDK (loaded via <script> tags)
+   jkl1
    ============================================================================= */
 firebase.initializeApp(window.FIREBASE_CONFIG);
 
 const auth = firebase.auth();
-const db   = firebase.firestore();
 let currentUser = null;
 
-// Firestore sentinel helpers
-const TS  = () => firebase.firestore.FieldValue.serverTimestamp();
-const DEL = () => firebase.firestore.FieldValue.delete();
-
-// Per-user collection/doc references — only call when currentUser is set
-const userCol = (col)     => db.collection('users').doc(currentUser.uid).collection(col);
-const userDoc = (col, id) => db.collection('users').doc(currentUser.uid).collection(col).doc(id);
+/* =============================================================================
+   API HELPER — sends Firebase ID token with every request
+   ============================================================================= */
+async function apiFetch(method, path, body) {
+  const token = await auth.currentUser?.getIdToken();
+  const res   = await fetch(path, {
+    method,
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {})
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || res.statusText);
+  }
+  return res.json();
+}
 
 /* =============================================================================
    API LAYER
    ============================================================================= */
 const api = {
   tabs: {
-    async list() {
-      const snap = await userCol('tabs').get();
-      const tabs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      tabs.sort((a, b) => {
-        const ts = v => v?.seconds ?? (v ? new Date(v).getTime() / 1000 : 0);
-        return ts(a.createdAt) - ts(b.createdAt);
-      });
-      return tabs;
-    },
-    async create(body) {
-      const ref = await userCol('tabs').add({ ...body, createdAt: TS() });
-      return { id: ref.id, ...body };
-    },
-    async update(id, body) {
-      await userDoc('tabs', id).update(body);
-      return { id, ...body };
-    },
-    async remove(id) {
-      const clsInTab = state.classes.filter(c => c.tabId === id);
-      const clsIds   = new Set(clsInTab.map(c => c.id));
-      const hwInTab  = state.homework.filter(h => clsIds.has(h.classId));
-      const batch    = db.batch();
-      batch.delete(userDoc('tabs', id));
-      clsInTab.forEach(c => batch.delete(userDoc('classes',  c.id)));
-      hwInTab.forEach( h => batch.delete(userDoc('homework', h.id)));
-      await batch.commit();
-      return { ok: true };
-    }
+    list()              { return apiFetch('GET',    '/api/tabs'); },
+    create(body)        { return apiFetch('POST',   '/api/tabs', body); },
+    update(id, body)    { return apiFetch('PUT',    `/api/tabs/${id}`, body); },
+    remove(id)          { return apiFetch('DELETE', `/api/tabs/${id}`); },
+    reorder(orderedIds) { return apiFetch('POST',   '/api/tabs/reorder', { order: orderedIds }); }
   },
   classes: {
-    async list() {
-      const snap    = await userCol('classes').get();
-      const classes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      classes.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-      return classes;
-    },
-    async create(body) {
-      const order = Date.now();
-      const ref   = await userCol('classes').add({ ...body, order, createdAt: TS() });
-      return { id: ref.id, ...body, order };
-    },
-    async update(id, body) {
-      await userDoc('classes', id).update(body);
-      const snap = await userDoc('classes', id).get();
-      return { id: snap.id, ...snap.data() };
-    },
-    async remove(id) {
-      const hwToDelete = state.homework.filter(h => h.classId === id);
-      const batch      = db.batch();
-      batch.delete(userDoc('classes', id));
-      hwToDelete.forEach(h => batch.delete(userDoc('homework', h.id)));
-      await batch.commit();
-      return { ok: true };
-    },
-    async reorder(orderedIds) {
-      const batch = db.batch();
-      orderedIds.forEach((id, index) => batch.update(userDoc('classes', id), { order: index }));
-      await batch.commit();
-      return { ok: true };
-    }
+    list()              { return apiFetch('GET',    '/api/classes'); },
+    create(body)        { return apiFetch('POST',   '/api/classes', body); },
+    update(id, body)    { return apiFetch('PUT',    `/api/classes/${id}`, body); },
+    remove(id)          { return apiFetch('DELETE', `/api/classes/${id}`); },
+    reorder(orderedIds) { return apiFetch('POST',   '/api/classes/reorder', { order: orderedIds }); }
   },
   homework: {
-    async list() {
-      const snap = await userCol('homework').get();
-      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    },
-    async create(body) {
-      const ref = await userCol('homework').add({ ...body, completed: false, createdAt: TS() });
-      return { id: ref.id, ...body, completed: false };
-    },
-    async update(id, body) {
-      await userDoc('homework', id).update(body);
-      const snap = await userDoc('homework', id).get();
-      return { id: snap.id, ...snap.data() };
-    },
-    async remove(id) {
-      await userDoc('homework', id).delete();
-      return { ok: true };
-    }
+    list()              { return apiFetch('GET',    '/api/homework'); },
+    create(body)        { return apiFetch('POST',   '/api/homework', body); },
+    update(id, body)    { return apiFetch('PUT',    `/api/homework/${id}`, body); },
+    remove(id)          { return apiFetch('DELETE', `/api/homework/${id}`); }
   }
 };
 
@@ -191,11 +142,17 @@ const PRESET_COLORS = [
 
 // Module-level drag state for settings reorder
 let _draggedClassId = null;
+let _draggedTabId   = null;
 
 // Returns the first preset color not yet used in the given tab
 function getNextAvailableColor(tabId) {
   const used = new Set(state.classes.filter(c => c.tabId === tabId).map(c => c.color));
   return PRESET_COLORS.find(c => !used.has(c)) ?? PRESET_COLORS[0];
+}
+
+// Returns "an" if word starts with a vowel sound, otherwise "a"
+function article(word) {
+  return /^[aeiouAEIOU]/.test(word) ? 'an' : 'a';
 }
 
 // Basic singularizer: "Clubs" → "Club", "Activities" → "Activity", "Classes" → "Class"
@@ -314,6 +271,15 @@ function renderSchedule() {
   const tabClasses = state.classes.filter(c => c.tabId === state.activeTabId);
   if (tabClasses.length === 0) {
     container.innerHTML = '';
+    const activeTab = state.tabs.find(t => t.id === state.activeTabId);
+    if (!activeTab) {
+      emptyState.querySelector('h2').textContent = 'No tabs yet';
+      emptyState.querySelector('p').textContent  = 'Open Settings to add tabs';
+    } else {
+      const plural = activeTab.name;
+      emptyState.querySelector('h2').textContent = `No ${plural.toLowerCase()} yet`;
+      emptyState.querySelector('p').textContent  = `Open Settings to add ${plural.toLowerCase()} to this tab`;
+    }
     emptyState.classList.remove('hidden');
     return;
   }
@@ -463,15 +429,58 @@ function renderSettingsTabsList() {
   state.tabs.forEach(tab => {
     const item = document.createElement('div');
     item.className = 'settings-tab-item';
+    item.dataset.tabId = tab.id;
+    item.draggable = true;
     item.innerHTML = `
+      <span class="drag-handle" title="Drag to reorder">⠿</span>
       <span class="settings-tab-name">${esc(tab.name)}</span>
-      ${tab.id === 'classes'
-        ? '<span class="settings-tab-default">Default</span>'
-        : `<div class="settings-tab-actions">
-            <button class="btn btn-sm btn-secondary edit-tab-btn" data-tab-id="${tab.id}">Edit</button>
-            <button class="btn btn-sm btn-danger delete-tab-btn" data-tab-id="${tab.id}">Delete</button>
-           </div>`}
+      <div class="settings-tab-actions">
+        <button class="btn btn-sm btn-secondary edit-tab-btn" data-tab-id="${tab.id}">Edit</button>
+        <button class="btn btn-sm btn-danger delete-tab-btn" data-tab-id="${tab.id}">Delete</button>
+      </div>
     `;
+
+    item.addEventListener('dragstart', e => {
+      _draggedTabId = tab.id;
+      e.dataTransfer.effectAllowed = 'move';
+      setTimeout(() => item.classList.add('dragging'), 0);
+    });
+    item.addEventListener('dragend', () => {
+      item.classList.remove('dragging');
+      list.querySelectorAll('.settings-tab-item').forEach(el => el.classList.remove('drag-over'));
+    });
+    item.addEventListener('dragover', e => {
+      e.preventDefault();
+      if (_draggedTabId === tab.id) return;
+      list.querySelectorAll('.settings-tab-item').forEach(el => el.classList.remove('drag-over'));
+      item.classList.add('drag-over');
+    });
+    item.addEventListener('dragleave', e => {
+      if (!item.contains(e.relatedTarget)) item.classList.remove('drag-over');
+    });
+    item.addEventListener('drop', async e => {
+      e.preventDefault();
+      item.classList.remove('drag-over');
+      if (!_draggedTabId || _draggedTabId === tab.id) return;
+
+      const tabs    = [...state.tabs];
+      const fromIdx = tabs.findIndex(t => t.id === _draggedTabId);
+      const toIdx   = tabs.findIndex(t => t.id === tab.id);
+      if (fromIdx === -1 || toIdx === -1) return;
+
+      const [moved] = tabs.splice(fromIdx, 1);
+      tabs.splice(toIdx, 0, moved);
+
+      state.tabs = tabs;
+      try {
+        await api.tabs.reorder(tabs.map(t => t.id));
+        renderSettingsTabsList();
+        renderTabBar();
+      } catch (err) {
+        toast(`Reorder failed: ${err.message}`, 'error');
+      }
+    });
+
     list.appendChild(item);
   });
 }
@@ -479,13 +488,24 @@ function renderSettingsTabsList() {
 /* =============================================================================
    RENDER — SETTINGS CLASS LIST (with drag-to-reorder)
    ============================================================================= */
+function tabItemLabel(tabId) {
+  const tab = state.tabs.find(t => t.id === tabId);
+  if (!tab) return 'Group';
+  return singularize(tab.name.trim());
+}
+
 function renderSettingsClassList() {
   const tabId   = document.getElementById('settings-tab-select').value || 'classes';
   const list    = document.getElementById('settings-classes-list');
   const classes = state.classes.filter(c => c.tabId === tabId);
+  const label   = tabItemLabel(tabId);
+  const tab     = state.tabs.find(t => t.id === tabId);
+  const plural  = tab ? tab.name : label + 's';
+
+  document.getElementById('add-group-btn').textContent = `+ Add ${article(label)} ${label}`;
 
   if (classes.length === 0) {
-    list.innerHTML = '<p class="settings-empty">No groups in this tab yet.</p>';
+    list.innerHTML = `<p class="settings-empty">No ${plural.toLowerCase()} in this tab yet</p>`;
     return;
   }
   list.innerHTML = '';
@@ -636,7 +656,7 @@ function closeHwModal() {
 /* =============================================================================
    SETTINGS MODAL
    ============================================================================= */
-function openSettings(page = 'account') {
+function openSettings(page = state.tabs.length === 0 ? 'tabs' : 'account') {
   populateSettingsTabSelect(state.activeTabId);
   resetClassForm();
   renderSettingsTabsList();
@@ -645,6 +665,9 @@ function openSettings(page = 'account') {
   renderPrefsPage();
   switchSettingsPage(page);
   document.getElementById('settings-modal').classList.add('modal--open');
+  if (page === 'tabs') {
+    requestAnimationFrame(() => document.getElementById('tab-name').focus());
+  }
 }
 function closeSettings() { document.getElementById('settings-modal').classList.remove('modal--open'); }
 
@@ -655,7 +678,7 @@ function populateSettingsTabSelect(selectValue) {
 }
 
 function switchSettingsPage(page) {
-  ['tabs', 'classes', 'account', 'preferences', 'help'].forEach(p => {
+  ['tabs', 'classes', 'account', 'preferences', 'help', 'templates'].forEach(p => {
     document.getElementById(`settings-page-${p}`).classList.toggle('hidden', page !== p);
   });
   document.querySelectorAll('.settings-nav-item').forEach(btn => {
@@ -822,7 +845,8 @@ async function handleClassFormSubmit(e) {
     } else {
       const created = await api.classes.create(data);
       state.classes.push(created);
-      toast(`Added group "${data.name}"`, 'success');
+      const addedLabel = tabItemLabel(tabId);
+      toast(`Added ${article(addedLabel)} ${addedLabel} "${data.name}"`, 'success');
     }
     closeGroupForm();
     renderSettingsClassList();
@@ -839,17 +863,22 @@ async function handleAddTab(e) {
     const tab = await api.tabs.create({ name });
     state.tabs.push(tab);
     document.getElementById('tab-name').value = '';
+    state.activeTabId = tab.id;
     renderTabBar();
     renderSettingsTabsList();
     populateSettingsTabSelect(tab.id);
     renderSettingsClassList();
+    closeSettings();
+    renderSchedule();
     toast(`Added tab "${name}"`, 'success');
-  } catch (err) { toast(`Error: ${err.message}`, 'error'); }
+  } catch (err) { 
+    toast(`Error: ${err.message}`, 'error'); 
+  }
 }
 
 async function handleDeleteTab(tabId) {
   const tab    = state.tabs.find(t => t.id === tabId);
-  if (!tab || tabId === 'classes') return;
+  if (!tab) return;
   const tabCls = state.classes.filter(c => c.tabId === tabId);
   const hwCount = state.homework.filter(h => tabCls.some(c => c.id === h.classId)).length;
   let msg = `Delete tab "${tab.name}"?`;
@@ -862,7 +891,7 @@ async function handleDeleteTab(tabId) {
     state.tabs     = state.tabs.filter(t => t.id !== tabId);
     state.classes  = state.classes.filter(c => c.tabId !== tabId);
     state.homework = state.homework.filter(h => !clsIds.includes(h.classId));
-    if (state.activeTabId === tabId) state.activeTabId = 'classes';
+    if (state.activeTabId === tabId) state.activeTabId = state.tabs.filter(t => t.id !== tabId)[0]?.id ?? null;
 
     renderTabBar(); renderSchedule(); renderSummary();
     renderSettingsTabsList();
@@ -892,7 +921,7 @@ async function handleDeleteTab(tabId) {
         state.tabs     = state.tabs.filter(t => t.id !== r.id);
         state.classes  = state.classes.filter(c => c.tabId !== r.id);
         state.homework = state.homework.filter(h => !rClsIds.includes(h.classId));
-        if (state.activeTabId === r.id) state.activeTabId = 'classes';
+        if (state.activeTabId === r.id) state.activeTabId = state.tabs.filter(t => t.id !== r.id)[0]?.id ?? null;
         renderTabBar(); renderSchedule(); renderSummary();
         renderSettingsTabsList(); populateSettingsTabSelect(state.activeTabId); renderSettingsClassList();
         toast(`Deleted tab "${tab.name}"`, 'info');
@@ -986,7 +1015,8 @@ async function handleDeleteClass(classId) {
     state.classes  = state.classes.filter(c => c.id !== classId);
     state.homework = state.homework.filter(h => h.classId !== classId);
     renderSettingsClassList(); renderSchedule(); renderSummary();
-    toast(`Deleted group "${cls.name}"`, 'info');
+    const clsLabel = tabItemLabel(cls.tabId);
+    toast(`Deleted ${clsLabel} "${cls.name}"`, 'info');
 
     const { id: _id, createdAt: _ca, ...clsFields } = cls;
     const hwSnaps = clsHw.map(({ id: _i, classId: _c, createdAt: _c2, completed: _co, ...f }) => f);
@@ -999,7 +1029,7 @@ async function handleDeleteClass(classId) {
         const restoredHw = await Promise.all(hwSnaps.map(f => api.homework.create({ ...f, classId: restored.id })));
         state.homework.push(...restoredHw);
         renderSettingsClassList(); renderSchedule(); renderSummary();
-        toast(`Restored "${cls.name}"`, 'success');
+        toast(`Restored ${clsLabel} "${cls.name}"`, 'success');
       },
       async redo() {
         if (!this.restoredClassId) return;
@@ -1007,7 +1037,7 @@ async function handleDeleteClass(classId) {
         state.classes  = state.classes.filter(c => c.id !== this.restoredClassId);
         state.homework = state.homework.filter(h => h.classId !== this.restoredClassId);
         renderSettingsClassList(); renderSchedule(); renderSummary();
-        toast(`Deleted group "${cls.name}"`, 'info');
+        toast(`Deleted ${clsLabel} "${cls.name}"`, 'info');
       }
     };
     history.push(action);
@@ -1056,21 +1086,19 @@ async function loadSchedule(file) {
   if (!confirm('This will replace your current schedule. Continue?')) return;
 
   try {
-    // Delete existing data
+    // Delete all existing data
     await Promise.all(state.homework.map(h => api.homework.remove(h.id)));
     await Promise.all(state.classes.map(c => api.classes.remove(c.id)));
-    const nonDefaultTabs = state.tabs.filter(t => t.id !== 'classes');
-    await Promise.all(nonDefaultTabs.map(t => api.tabs.remove(t.id)));
+    await Promise.all(state.tabs.map(t => api.tabs.remove(t.id)));
 
-    state.tabs     = state.tabs.filter(t => t.id === 'classes');
+    state.tabs     = [];
     state.classes  = [];
     state.homework = [];
 
     // Rebuild with new IDs, tracking the old→new mapping
-    const tabIdMap = { classes: 'classes' };
+    const tabIdMap = {};
     for (const t of data.tabs) {
       const { _origId, ...body } = t;
-      if (_origId === 'classes') { tabIdMap['classes'] = 'classes'; continue; }
       const created = await api.tabs.create(body);
       state.tabs.push(created);
       tabIdMap[_origId] = created.id;
@@ -1079,7 +1107,8 @@ async function loadSchedule(file) {
     const clsIdMap = {};
     for (const c of data.classes) {
       const { _origId, tabId, ...body } = c;
-      const newTabId = tabIdMap[tabId] ?? 'classes';
+      const newTabId = tabIdMap[tabId];
+      if (!newTabId) continue;
       const created  = await api.classes.create({ ...body, tabId: newTabId });
       state.classes.push(created);
       clsIdMap[_origId] = created.id;
@@ -1094,7 +1123,7 @@ async function loadSchedule(file) {
     }
 
     if (!state.activeTabId || !state.tabs.find(t => t.id === state.activeTabId)) {
-      state.activeTabId = state.tabs[0]?.id ?? 'classes';
+      state.activeTabId = state.tabs[0]?.id ?? null;
     }
     renderTabBar();
     renderSchedule();
@@ -1110,12 +1139,70 @@ async function loadSchedule(file) {
 }
 
 /* =============================================================================
+   TEMPLATES
+   ============================================================================= */
+async function applyStudentTemplate() {
+  const hasData = state.tabs.length > 0 || state.classes.length > 0;
+  if (hasData && !confirm(
+    'This will replace your current schedule with the student template.\n\n' +
+    'All existing tabs, groups, and assignments will be deleted. Continue?'
+  )) return;
+
+  const btn = document.getElementById('student-template-btn');
+  btn.disabled = true;
+
+  const CORE_SUBJECTS = [
+    { name: 'English',     color: '#ef4444' },
+    { name: 'Math',        color: '#3b82f6' },
+    { name: 'Science',     color: '#22c55e' },
+    { name: 'History',     color: '#f97316' },
+  ];
+  const ELECTIVE_COLORS = ['#8b5cf6', '#ec4899', '#14b8a6', '#eab308'];
+
+  try {
+    const [freshTabs, freshClasses, freshHomework] = await Promise.all([
+      api.tabs.list(), api.classes.list(), api.homework.list()
+    ]);
+    for (const h of freshHomework) await api.homework.remove(h.id);
+    for (const c of freshClasses) await api.classes.remove(c.id);
+    for (const t of freshTabs)    await api.tabs.remove(t.id);
+    state.tabs = []; state.classes = []; state.homework = [];
+
+    const tab = await api.tabs.create({ name: 'Classes' });
+    state.tabs.push(tab);
+
+    for (let i = 0; i < CORE_SUBJECTS.length; i++) {
+      const cls = await api.classes.create({ ...CORE_SUBJECTS[i], tabId: tab.id });
+      state.classes.push(cls);
+    }
+    for (let i = 0; i < 4; i++) {
+      const cls = await api.classes.create({ name: 'Elective', color: ELECTIVE_COLORS[i], tabId: tab.id });
+      state.classes.push(cls);
+    }
+
+    state.activeTabId = tab.id;
+    renderTabBar();
+    renderSchedule();
+    renderSummary();
+    renderSettingsTabsList();
+    populateSettingsTabSelect(tab.id);
+    renderSettingsClassList();
+    closeSettings();
+    toast('Student template applied', 'success');
+  } catch (err) {
+    toast(`Template failed: ${err.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* =============================================================================
    WIRE EVENTS
    ============================================================================= */
 function wireEvents() {
   document.getElementById('add-hw-btn').addEventListener('click', () => openHwModal());
   document.getElementById('settings-btn').addEventListener('click', () => openSettings('account'));
-  document.getElementById('empty-settings-btn').addEventListener('click', () => openSettings('classes'));
+  document.getElementById('empty-settings-btn').addEventListener('click', () => openSettings(state.tabs.length === 0 ? 'tabs' : 'classes'));
   document.getElementById('user-avatar').addEventListener('click', () => openSettings('account'));
 
   document.getElementById('undo-btn').addEventListener('click', () => history.undo());
@@ -1178,10 +1265,43 @@ function wireEvents() {
     const editBtn   = e.target.closest('.edit-tab-btn');
     if (deleteBtn) handleDeleteTab(deleteBtn.dataset.tabId);
     if (editBtn) {
-      populateSettingsTabSelect(editBtn.dataset.tabId);
-      resetClassForm();
-      renderSettingsClassList();
-      switchSettingsPage('classes');
+      const tabId  = editBtn.dataset.tabId;
+      const tab    = state.tabs.find(t => t.id === tabId);
+      if (!tab) return;
+      const item   = editBtn.closest('.settings-tab-item');
+      const nameEl = item.querySelector('.settings-tab-name');
+      const input  = document.createElement('input');
+      input.type        = 'text';
+      input.value       = tab.name;
+      input.className   = 'inline-tab-rename';
+      input.style.cssText = 'flex:1;font-size:.9rem;font-weight:600;border:1px solid var(--border);border-radius:4px;padding:2px 6px;background:var(--bg);color:var(--text);';
+      nameEl.replaceWith(input);
+      editBtn.textContent = 'Save';
+      input.focus();
+      input.select();
+
+      async function commitRename() {
+        const newName = input.value.trim();
+        if (newName && newName !== tab.name) {
+          try {
+            await api.tabs.update(tabId, { name: newName });
+            tab.name = newName;
+            renderTabBar();
+            populateSettingsTabSelect(state.activeTabId);
+            toast(`Renamed tab to "${newName}"`, 'success');
+          } catch (err) {
+            toast(`Error: ${err.message}`, 'error');
+          }
+        }
+        renderSettingsTabsList();
+      }
+
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Enter')  { e.preventDefault(); commitRename(); }
+        if (e.key === 'Escape') renderSettingsTabsList();
+      });
+      input.addEventListener('blur', commitRename);
+      editBtn.addEventListener('click', e => { e.stopPropagation(); commitRename(); }, { once: true });
     }
   });
 
@@ -1217,6 +1337,13 @@ function wireEvents() {
   // Help section modals
   function openModal(id)  { document.getElementById(id).classList.add('modal--open'); }
   function closeModal(id) { document.getElementById(id).classList.remove('modal--open'); }
+
+  document.getElementById('student-template-btn').addEventListener('click', applyStudentTemplate);
+
+  // Suggest a Template — opens Google Form
+  document.getElementById('suggest-template-btn').addEventListener('click', () => {
+    window.open('https://docs.google.com/forms/d/e/1FAIpQLSdHt2PZsBoOdIXXcD5l-3AP12m8erIEv0pl4iNv671QUHy0Dg/viewform?usp=publish-editor', '_blank', 'noopener');
+  });
 
   document.getElementById('whats-new-btn').addEventListener('click',  () => openModal('whats-new-modal'));
   document.getElementById('privacy-btn').addEventListener('click',     () => openModal('privacy-modal'));
