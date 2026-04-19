@@ -309,6 +309,7 @@ body {
 .summary-actions {
   display: flex;
   gap: 4px;
+  justify-content: flex-end;
 }
 
 .summary-btn {
@@ -505,14 +506,14 @@ body {
   font-weight: 700;
   cursor: pointer;
   background: transparent;
-  color: #1e293b;
+  color: var(--text-muted);
   font-family: inherit;
   opacity: 0;
   transition: opacity var(--t), background var(--t), color var(--t);
 }
 .hw-item:hover .btn-icon-sm { opacity: 1; }
-.btn-icon-sm:hover          { background: #fee2e2; color: var(--danger); }
-.btn-icon-sm.hw-edit-btn:hover { background: #eff6ff; color: var(--primary); }
+.btn-icon-sm:hover          { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
+.btn-icon-sm.hw-edit-btn:hover { background: color-mix(in srgb, var(--primary) 15%, transparent); color: var(--primary); }
 
 /* =============================================================================
    EMPTY STATE
@@ -664,7 +665,14 @@ input:focus, select:focus, textarea:focus {
 }
 textarea { min-height: 68px; resize: vertical; }
 
-#hw-deadline { padding: 11px 12px; font-size: 1rem; cursor: pointer; }
+.deadline-row { display: flex; gap: 8px; align-items: center; }
+#hw-deadline { flex: 1; min-width: 0; padding: 11px 12px; font-size: 1rem; cursor: pointer; }
+.time-picker { display: flex; gap: 2px; }
+.time-picker input,
+.time-picker select { padding: 11px 8px; font-size: 1rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font-family: inherit; cursor: pointer; box-sizing: border-box; }
+#hw-hour   { width: 58px; }
+#hw-minute { width: 58px; }
+#hw-ampm   { width: 68px; }
 
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 
@@ -1155,8 +1163,6 @@ kbd {
   background: color-mix(in srgb, var(--color, #94a3b8) 14%, #1e293b);
 }
 [data-theme="dark"] .hw-item:hover      { background: #263348; }
-[data-theme="dark"] .btn-icon-sm        { color: #e2e8f0; }
-[data-theme="dark"] .btn-icon-sm:hover  { background: #3f2020; }
 [data-theme="dark"] .btn-icon-sm.hw-edit-btn:hover { background: #1e3052; }
 [data-theme="dark"] .badge--pending { background: #451a03; color: #fdba74; }
 [data-theme="dark"] .badge--done    { background: #052e16; color: #86efac; }

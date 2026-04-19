@@ -135,8 +135,20 @@
           <textarea id="hw-notes" placeholder="Any extra details, resources, etc."></textarea>
         </div>
         <div class="form-group">
-          <label for="hw-deadline">Deadline <span class="optional">(optional)</span></label>
-          <input type="date" id="hw-deadline">
+          <label>Deadline <span class="optional">(optional)</span></label>
+          <div class="deadline-row">
+            <input type="date" id="hw-deadline" placeholder="MM/DD/YYYY">
+            <div class="time-picker">
+              <input type="text" id="hw-hour" list="hw-hour-list" placeholder="Hr" inputmode="numeric" autocomplete="off">
+              <datalist id="hw-hour-list"></datalist>
+              <input type="text" id="hw-minute" list="hw-min-list" placeholder="Min" inputmode="numeric" autocomplete="off">
+              <datalist id="hw-min-list"></datalist>
+              <select id="hw-ampm">
+                <option value="AM">AM</option>
+                <option value="PM">PM</option>
+              </select>
+            </div>
+          </div>
         </div>
         <div class="form-actions">
           <button type="button" class="btn btn-secondary" id="cancel-hw">Cancel</button>
@@ -256,7 +268,7 @@
               <h3 class="settings-section-label">Tabs</h3>
               <div id="settings-tabs-list"></div>
               <form id="tab-form" class="inline-form">
-                <input type="text" id="tab-name" placeholder="New tab name (e.g. Clubs)" autocomplete="off">
+                <input type="text" id="tab-name" placeholder="New tab name (e.g. Classes, Clubs, Reminders)" autocomplete="off">
                 <button type="submit" class="btn btn-sm btn-primary">Add Tab</button>
               </form>
             </div>
@@ -416,6 +428,19 @@
         <button class="close-btn" id="close-whats-new" aria-label="Close">&times;</button>
       </div>
       <div class="release-notes">
+        <div class="release-block">
+          <h3 class="release-version">v1.6 &mdash; April 2026</h3>
+          <ul>
+            <li>Deadline time &mdash; optionally add a time (hour, minute, AM/PM) to any assignment; shown in the deadline badge</li>
+            <li>Summary panel buttons now hug the right edge regardless of deadline length</li>
+            <li>Homework item buttons (edit/delete) now appear to the left of the due-date badge on hover</li>
+            <li>Edit and delete buttons now visible on Neon and Cyber themes</li>
+            <li>App icon and favicon added &mdash; works on browser tabs and mobile home screen</li>
+            <li>Public assets reorganised into <code>css/</code>, <code>js/</code>, and <code>icons/</code> folders</li>
+            <li>Empty state: &ldquo;Browse templates&rdquo; hint centred in the panel; hint now pins to the bottom</li>
+            <li>Add-class modal widened from 480&thinsp;px to 560&thinsp;px</li>
+          </ul>
+        </div>
         <div class="release-block">
           <h3 class="release-version">v1.5 &mdash; April 2026</h3>
           <ul>

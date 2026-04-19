@@ -197,16 +197,19 @@ function normalizePeriod(raw) {
   return s;
 }
 
-function parseDeadline(dateStr) {
+function parseDeadline(dateStr, timeStr) {
   if (!dateStr) return null;
-  const due   = new Date(dateStr + 'T00:00:00');
+  const due   = new Date(dateStr + (timeStr ? `T${timeStr}:00` : 'T00:00:00'));
   const today = new Date();
   today.setHours(0,0,0,0);
   const diff  = Math.floor((due-today)/86_400_000);
-  const label = due.toLocaleDateString('en-US', {
+  let label   = due.toLocaleDateString('en-US', {
     month:'short', day:'numeric',
     ...(due.getFullYear()!==today.getFullYear() && {year:'numeric'})
   });
+  if (timeStr) {
+    label += ' at ' + due.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
+  }
   return { label: `Due ${label}`, diff };
 }
 
@@ -295,7 +298,7 @@ function renderSchedule() {
         if (!a.deadline && !b.deadline) return 0;
         if (!a.deadline) return 1;
         if (!b.deadline) return -1;
-        return new Date(a.deadline) - new Date(b.deadline);
+        return new Date(a.deadline + (a.deadlineTime ? `T${a.deadlineTime}` : 'T23:59')) - new Date(b.deadline + (b.deadlineTime ? `T${b.deadlineTime}` : 'T23:59'));
       });
     container.appendChild(buildClassRow(cls, pending));
   });
@@ -340,7 +343,7 @@ function buildHwItem(hw) {
   item.className = 'hw-item';
   item.dataset.hwId = hw.id;
 
-  const dl     = parseDeadline(hw.deadline);
+  const dl     = parseDeadline(hw.deadline, hw.deadlineTime);
   const dlHtml = dl
     ? `<span class="deadline-badge ${deadlineCssClass(dl.diff)}">${esc(dl.label)}</span>`
     : '';
@@ -356,9 +359,9 @@ function buildHwItem(hw) {
       ${notesHtml}
     </div>
     <div class="hw-right">
-      ${dlHtml}
       <button class="btn-icon-sm hw-edit-btn"   data-hw-id="${hw.id}" aria-label="Edit">✎</button>
       <button class="btn-icon-sm hw-delete"      data-hw-id="${hw.id}" aria-label="Delete">&#x2715;</button>
+      ${dlHtml}
     </div>
   `;
   return item;
@@ -396,7 +399,7 @@ function renderSummary() {
     const cls = state.classes.find(c => c.id === hw.classId);
     if (!cls) return;
     const tab    = state.tabs.find(t => t.id === cls.tabId);
-    const dl     = parseDeadline(hw.deadline);
+    const dl     = parseDeadline(hw.deadline, hw.deadlineTime);
     const item   = document.createElement('div');
     item.className = 'summary-item';
     item.style.setProperty('--color', cls.color || '#94a3b8');
@@ -647,7 +650,20 @@ function openHwEditModal(hwId) {
   document.getElementById('hw-edit-id').value             = hw.id;
   document.getElementById('hw-desc').value                = hw.description || '';
   document.getElementById('hw-notes').value               = hw.notes       || '';
-  document.getElementById('hw-deadline').value            = hw.deadline    || '';
+  document.getElementById('hw-deadline').value = hw.deadline || '';
+  // Restore time picker
+  if (hw.deadlineTime) {
+    const [hh, mm] = hw.deadlineTime.split(':').map(Number);
+    const ampm   = hh >= 12 ? 'PM' : 'AM';
+    const hour12 = hh % 12 || 12;
+    document.getElementById('hw-hour').value   = hour12;
+    document.getElementById('hw-minute').value = mm;
+    document.getElementById('hw-ampm').value   = ampm;
+  } else {
+    document.getElementById('hw-hour').value   = '';
+    document.getElementById('hw-minute').value = '';
+    document.getElementById('hw-ampm').value   = 'AM';
+  }
   document.getElementById('hw-modal-title').textContent   = 'Edit Assignment';
   document.getElementById('hw-form-submit').textContent   = 'Save Changes';
 }
@@ -784,13 +800,36 @@ async function handleAddHomework(e) {
   const classId     = document.getElementById('hw-class').value;
   const description = document.getElementById('hw-desc').value.trim();
   const notes       = document.getElementById('hw-notes').value.trim();
-  const deadline    = document.getElementById('hw-deadline').value;
+  const hourVal  = document.getElementById('hw-hour').value;
+  const minuteVal = document.getElementById('hw-minute').value;
+  const ampmVal  = document.getElementById('hw-ampm').value;
+  let   deadline = document.getElementById('hw-deadline').value;
   if (!classId || !description) return;
+
+  // Fix Chrome: if year is missing/invalid, default to current year
+  if (deadline) {
+    const parts = deadline.split('-');
+    if (parseInt(parts[0]) < 2000) parts[0] = new Date().getFullYear();
+    deadline = parts.join('-');
+  }
+
+  // Only build deadlineTime if user entered an hour
+  let deadlineTime = '';
+  const hParsed = parseInt(hourVal);
+  if (hourVal.trim() && !isNaN(hParsed) && hParsed >= 1 && hParsed <= 12) {
+    let h = hParsed;
+    const mParsed = parseInt(minuteVal);
+    const m = (!isNaN(mParsed) && mParsed >= 0 && mParsed <= 59) ? mParsed : 0;
+    if (ampmVal === 'PM' && h !== 12) h += 12;
+    if (ampmVal === 'AM' && h === 12) h = 0;
+    deadlineTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  }
 
   const payload = {
     classId, description,
-    ...(notes    && { notes }),
-    ...(deadline && { deadline })
+    ...(notes        && { notes }),
+    ...(deadline     && { deadline }),
+    ...(deadlineTime && { deadlineTime })
   };
 
   try {
@@ -1202,7 +1241,19 @@ async function applyStudentTemplate() {
 /* =============================================================================
    WIRE EVENTS
    ============================================================================= */
+function buildTimePickerOptions() {
+  const hourList = document.getElementById('hw-hour-list');
+  for (let h = 1; h <= 12; h++) {
+    const opt = document.createElement('option'); opt.value = String(h); hourList.appendChild(opt);
+  }
+  const minList = document.getElementById('hw-min-list');
+  for (let m = 0; m <= 59; m++) {
+    const opt = document.createElement('option'); opt.value = String(m).padStart(2, '0'); minList.appendChild(opt);
+  }
+}
+
 function wireEvents() {
+  buildTimePickerOptions();
   document.getElementById('add-hw-btn').addEventListener('click', () => openHwModal());
   document.getElementById('settings-btn').addEventListener('click', () => openSettings('account'));
   document.getElementById('empty-settings-btn').addEventListener('click', () => openSettings(state.tabs.length === 0 ? 'tabs' : 'classes'));

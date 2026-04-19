@@ -16,7 +16,7 @@ router.get('/', async (req, res) => {
 });
 
 router.post('/', async (req, res) => {
-  const { classId, description, notes, deadline } = req.body;
+  const { classId, description, notes, deadline, deadlineTime } = req.body;
   if (!classId || !description?.trim()) {
     return res.status(400).json({ error: 'classId and description are required' });
   }
@@ -27,22 +27,24 @@ router.post('/', async (req, res) => {
       completed:   false,
       createdAt:   FieldValue.serverTimestamp()
     };
-    if (notes)    data.notes    = notes;
-    if (deadline) data.deadline = deadline;
+    if (notes)        data.notes        = notes;
+    if (deadline)     data.deadline     = deadline;
+    if (deadlineTime) data.deadlineTime = deadlineTime;
     const ref = await col(req.uid).add(data);
     res.status(201).json({ id: ref.id, ...data });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.put('/:id', async (req, res) => {
-  const { description, notes, deadline, completed } = req.body;
+  const { description, notes, deadline, deadlineTime, completed } = req.body;
   try {
     const ref    = doc(req.uid, req.params.id);
     const update = {};
-    if (description !== undefined) update.description = description;
-    if (notes       !== undefined) update.notes       = notes;
-    if (deadline    !== undefined) update.deadline    = deadline;
-    if (completed   !== undefined) update.completed   = completed;
+    if (description  !== undefined) update.description  = description;
+    if (notes        !== undefined) update.notes        = notes;
+    if (deadline     !== undefined) update.deadline     = deadline;
+    if (deadlineTime !== undefined) update.deadlineTime = deadlineTime;
+    if (completed    !== undefined) update.completed    = completed;
     await ref.update(update);
     const snap = await ref.get();
     res.json({ id: snap.id, ...snap.data() });
