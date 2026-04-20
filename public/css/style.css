@@ -666,10 +666,10 @@ input:focus, select:focus, textarea:focus {
 textarea { min-height: 68px; resize: vertical; }
 
 .deadline-row { display: flex; gap: 8px; align-items: center; }
-#hw-deadline { flex: 1; min-width: 0; padding: 11px 12px; font-size: 1rem; cursor: pointer; }
+#hw-deadline { flex: 1; min-width: 0; padding: 11px 12px; font-size: 1rem; cursor: pointer; box-sizing: border-box; height: 47px; }
 .time-picker { display: flex; gap: 2px; }
 .time-picker input,
-.time-picker select { padding: 11px 8px; font-size: 1rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font-family: inherit; cursor: pointer; box-sizing: border-box; }
+.time-picker select { padding: 0 8px; font-size: 1rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font-family: inherit; cursor: pointer; box-sizing: border-box; height: 47px; }
 #hw-hour   { width: 58px; }
 #hw-minute { width: 58px; }
 #hw-ampm   { width: 68px; }
@@ -1058,23 +1058,24 @@ kbd {
 
 .auth-card {
   background: var(--surface);
-  border-radius: var(--radius);
+  border-radius: 16px;
   box-shadow: var(--shadow-lg);
-  padding: 48px 40px;
+  padding: 44px 40px 40px;
   text-align: center;
-  max-width: 380px;
-  width: 90%;
+  max-width: 400px;
+  width: 92%;
 }
 .auth-logo {
-  font-size: 1.7rem;
+  font-size: 1.6rem;
   font-weight: 700;
-  color: var(--header-bg);
-  margin-bottom: 8px;
+  color: var(--text);
+  margin-bottom: 6px;
+  letter-spacing: -.02em;
 }
 .auth-tagline {
   color: var(--text-muted);
-  font-size: 0.95rem;
-  margin-bottom: 36px;
+  font-size: 0.88rem;
+  margin-bottom: 28px;
 }
 .btn-google-signin {
   display: inline-flex;
@@ -1097,6 +1098,42 @@ kbd {
   box-shadow: 0 1px 3px rgba(0,0,0,.15);
 }
 .btn-google-signin svg { flex-shrink: 0; }
+
+/* Auth form fields */
+.auth-field { margin-bottom: 10px; }
+.auth-field input {
+  width: 100%;
+  padding: 11px 14px;
+  font-size: .95rem;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  transition: border-color var(--t);
+  box-sizing: border-box;
+}
+.auth-field input:focus { outline: none; border-color: var(--primary); }
+.auth-error { color: var(--danger); font-size: .8rem; margin: 4px 0 8px; text-align: left; }
+.auth-submit-btn { width: 100%; margin-top: 4px; padding: 11px; font-size: .95rem; }
+.auth-links {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 12px;
+  font-size: .82rem;
+}
+.auth-muted { color: var(--text-muted); }
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 22px 0;
+  color: var(--text-muted);
+  font-size: .78rem;
+}
+.auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.auth-reset-hint { font-size: .88rem; color: var(--text-muted); margin-bottom: 18px; text-align: left; }
+#email-auth-form { margin-bottom: 0; }
 
 /* User area in header */
 .user-area {

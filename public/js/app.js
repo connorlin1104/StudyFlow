@@ -657,7 +657,7 @@ function openHwEditModal(hwId) {
     const ampm   = hh >= 12 ? 'PM' : 'AM';
     const hour12 = hh % 12 || 12;
     document.getElementById('hw-hour').value   = hour12;
-    document.getElementById('hw-minute').value = mm;
+    document.getElementById('hw-minute').value = String(mm).padStart(2, '0');
     document.getElementById('hw-ampm').value   = ampm;
   } else {
     document.getElementById('hw-hour').value   = '';
@@ -1250,6 +1250,10 @@ function buildTimePickerOptions() {
   for (let m = 0; m <= 59; m++) {
     const opt = document.createElement('option'); opt.value = String(m).padStart(2, '0'); minList.appendChild(opt);
   }
+  document.getElementById('hw-minute').addEventListener('blur', e => {
+    const v = e.target.value.trim();
+    if (v !== '' && !isNaN(v)) e.target.value = String(parseInt(v)).padStart(2, '0');
+  });
 }
 
 function wireEvents() {
@@ -1474,7 +1478,107 @@ document.addEventListener('DOMContentLoaded', () => {
   const authCard    = document.getElementById('auth-card');
   const appWrapper  = document.getElementById('app-wrapper');
 
-  // Sign-in button
+  // Email / password auth
+  let authMode = 'signin'; // 'signin' | 'signup'
+
+  function friendlyAuthError(code) {
+    switch (code) {
+      case 'auth/invalid-email':        return 'Invalid email address.';
+      case 'auth/user-not-found':       return 'No account with that email.';
+      case 'auth/wrong-password':       return 'Incorrect password.';
+      case 'auth/email-already-in-use': return 'An account with that email already exists.';
+      case 'auth/weak-password':        return 'Password must be at least 6 characters.';
+      case 'auth/too-many-requests':    return 'Too many attempts. Try again later.';
+      case 'auth/invalid-credential':   return 'Incorrect email or password.';
+      default:                          return 'Something went wrong. Please try again.';
+    }
+  }
+
+  function showAuthError(elId, msg) {
+    const el = document.getElementById(elId);
+    if (msg) { el.textContent = msg; el.classList.remove('hidden'); }
+    else     { el.textContent = ''; el.classList.add('hidden'); }
+  }
+
+  function showAuthPanel(panel) {
+    document.getElementById('auth-panel-main').classList.toggle('hidden', panel !== 'main');
+    document.getElementById('auth-panel-forgot').classList.toggle('hidden', panel !== 'forgot');
+  }
+
+  // Sign in / sign up toggle
+  document.getElementById('auth-toggle').addEventListener('click', () => {
+    authMode = authMode === 'signin' ? 'signup' : 'signin';
+    const isSignup = authMode === 'signup';
+    document.getElementById('email-auth-submit').textContent = isSignup ? 'Create Account' : 'Sign In';
+    document.getElementById('auth-toggle').textContent = isSignup ? 'Sign in' : 'Sign up';
+    document.getElementById('auth-forgot').classList.toggle('hidden', isSignup);
+    showAuthError('auth-error', '');
+  });
+
+  // Email / password submit
+  document.getElementById('email-auth-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const email    = document.getElementById('auth-email').value.trim();
+    const password = document.getElementById('auth-password').value;
+    const btn      = document.getElementById('email-auth-submit');
+    showAuthError('auth-error', '');
+    btn.disabled = true;
+    try {
+      if (authMode === 'signup') {
+        const cred = await auth.createUserWithEmailAndPassword(email, password);
+        await cred.user.sendEmailVerification();
+      } else {
+        await auth.signInWithEmailAndPassword(email, password);
+      }
+    } catch (err) {
+      showAuthError('auth-error', friendlyAuthError(err.code));
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // Forgot password — show dedicated panel
+  document.getElementById('auth-forgot').addEventListener('click', () => {
+    const prefill = document.getElementById('auth-email').value.trim();
+    document.getElementById('auth-reset-email').value = prefill;
+    showAuthError('auth-reset-error', '');
+    showAuthPanel('forgot');
+  });
+
+  document.getElementById('auth-back').addEventListener('click', () => {
+    showAuthPanel('main');
+  });
+
+  document.getElementById('auth-reset-submit').addEventListener('click', async () => {
+    const email = document.getElementById('auth-reset-email').value.trim();
+    const btn   = document.getElementById('auth-reset-submit');
+    if (!email) { showAuthError('auth-reset-error', 'Enter your email address.'); return; }
+    showAuthError('auth-reset-error', '');
+    btn.disabled = true;
+    try {
+      await auth.sendPasswordResetEmail(email);
+      toast('Password reset email sent — check your inbox.', 'success');
+      showAuthPanel('main');
+    } catch (err) {
+      showAuthError('auth-reset-error', friendlyAuthError(err.code));
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // Verification screen actions
+  document.getElementById('auth-resend-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('auth-resend-btn');
+    btn.disabled = true;
+    try {
+      await auth.currentUser.sendEmailVerification();
+      toast('Verification email resent — check your inbox.', 'success');
+    } catch { toast('Could not resend. Try again shortly.', 'error'); }
+    finally { btn.disabled = false; }
+  });
+  document.getElementById('auth-verify-signout').addEventListener('click', () => auth.signOut());
+
+  // Google sign-in
   document.getElementById('google-signin-btn').addEventListener('click', () => {
     auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()).catch(err => {
       toast(`Sign-in failed: ${err.message}`, 'error');
@@ -1485,6 +1589,18 @@ document.addEventListener('DOMContentLoaded', () => {
   // Firebase resolves auth state from cache — this fires in ~100ms for returning users
   auth.onAuthStateChanged(user => {
     currentUser = user;
+    const verifyEl = document.getElementById('auth-verify');
+    if (user && !user.emailVerified && user.providerData[0]?.providerId === 'password') {
+      // Email/password user who hasn't verified yet — show verification screen
+      document.getElementById('auth-verify-email').textContent = user.email;
+      authScreen.classList.remove('hidden');
+      appWrapper.classList.add('hidden');
+      document.getElementById('auth-loading').classList.add('hidden');
+      document.getElementById('auth-card').classList.add('hidden');
+      verifyEl.classList.remove('hidden');
+      return;
+    }
+    verifyEl.classList.add('hidden');
     if (user) {
       // Close any lingering modals before showing the app
       document.getElementById('settings-modal').classList.remove('modal--open');
