@@ -203,7 +203,11 @@ function parseDeadline(dateStr, timeStr) {
   const today = new Date();
   today.setHours(0,0,0,0);
   const diff  = Math.floor((due-today)/86_400_000);
-  let label   = due.toLocaleDateString('en-US', {
+  let label;
+  if (diff === 0)       label = 'Today';
+  else if (diff === 1)  label = 'Tomorrow';
+  else if (diff === -1) label = 'Yesterday';
+  else label = due.toLocaleDateString('en-US', {
     month:'short', day:'numeric',
     ...(due.getFullYear()!==today.getFullYear() && {year:'numeric'})
   });

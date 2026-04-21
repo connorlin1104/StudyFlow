@@ -62,12 +62,13 @@ router.post('/test', async (req, res) => {
   try {
   const webpush = require('web-push');
   if (!process.env.VAPID_EMAIL || !process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
-    return res.status(500).json({ error: 'VAPID keys not configured.' });
+    return res.status(500).json({ error: 'VAPID keys not configured. Set VAPID_EMAIL, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY env vars.' });
   }
-  const toUrlSafe = s => s.trim().replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-  const pub  = toUrlSafe(process.env.VAPID_PUBLIC_KEY);
-  const priv = toUrlSafe(process.env.VAPID_PRIVATE_KEY);
-  webpush.setVapidDetails(process.env.VAPID_EMAIL, pub, priv);
+  webpush.setVapidDetails(
+    process.env.VAPID_EMAIL,
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY
+  );
 
   const now      = Date.now();
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -96,16 +97,10 @@ router.post('/test', async (req, res) => {
       const body = `Test · Due in ${minsLeft > 60 ? Math.round(minsLeft/60)+'hr' : minsLeft+'min'}`;
 
       try {
-        const timeout = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('push timeout')), 8000)
+        await webpush.sendNotification(
+          { endpoint: sub.endpoint, keys: sub.keys },
+          JSON.stringify({ title: item.description, body, url: '/' })
         );
-        await Promise.race([
-          webpush.sendNotification(
-            { endpoint: sub.endpoint, keys: sub.keys },
-            JSON.stringify({ title: item.description, body, url: '/' })
-          ),
-          timeout
-        ]);
         sent.push(item.description);
       } catch (e) {
         if (e.statusCode === 410) await db.collection('pushSubscriptions').doc(sub.id).delete();

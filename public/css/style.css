@@ -1448,6 +1448,16 @@ kbd {
 }
 .pref-label { font-size: .88rem; font-weight: 600; color: var(--text); }
 .pref-desc  { font-size: .75rem; color: var(--text-muted); }
+.pref-select {
+  font-size: .8rem;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card-bg);
+  color: var(--text);
+  cursor: pointer;
+  flex-shrink: 0;
+}
 
 /* Toggle switch */
 .toggle-switch {

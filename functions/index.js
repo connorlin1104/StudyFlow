@@ -32,10 +32,11 @@ exports.api = onRequest({ invoker: 'public', secrets: [VAPID_PUBLIC_KEY, VAPID_P
 exports.scheduledNotifications = onSchedule(
   { schedule: 'every 15 minutes', secrets: [VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_EMAIL] },
   async () => {
+    const toUrlSafe = s => s.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
     webpush.setVapidDetails(
       VAPID_EMAIL.value(),
-      VAPID_PUBLIC_KEY.value(),
-      VAPID_PRIVATE_KEY.value()
+      toUrlSafe(VAPID_PUBLIC_KEY.value()),
+      toUrlSafe(VAPID_PRIVATE_KEY.value())
     );
 
     const now      = Date.now();
