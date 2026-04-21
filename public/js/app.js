@@ -381,7 +381,9 @@ function renderSummary() {
       if (!a.deadline && !b.deadline) return 0;
       if (!a.deadline) return 1;
       if (!b.deadline) return -1;
-      return new Date(a.deadline) - new Date(b.deadline);
+      const ta = new Date(a.deadline + (a.deadlineTime ? `T${a.deadlineTime}` : 'T23:59'));
+      const tb = new Date(b.deadline + (b.deadlineTime ? `T${b.deadlineTime}` : 'T23:59'));
+      return ta - tb;
     });
 
   countBadge.textContent = pending.length;
@@ -1611,6 +1613,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const authCard    = document.getElementById('auth-card');
   const appWrapper  = document.getElementById('app-wrapper');
 
+  const PERSONAL_DOMAINS = new Set(['gmail.com','yahoo.com','hotmail.com','outlook.com','icloud.com','me.com','live.com','msn.com','aol.com','protonmail.com']);
+  const isOrgEmail = email => !PERSONAL_DOMAINS.has(email.split('@')[1]?.toLowerCase());
+
   // Email / password auth
   let authMode = 'signin'; // 'signin' | 'signup'
 
@@ -1659,7 +1664,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       if (authMode === 'signup') {
         const cred = await auth.createUserWithEmailAndPassword(email, password);
-        await cred.user.sendEmailVerification();
+        if (!isOrgEmail(email)) await cred.user.sendEmailVerification();
       } else {
         await auth.signInWithEmailAndPassword(email, password);
       }
@@ -1723,7 +1728,7 @@ document.addEventListener('DOMContentLoaded', () => {
   auth.onAuthStateChanged(user => {
     currentUser = user;
     const verifyEl = document.getElementById('auth-verify');
-    if (user && !user.emailVerified && user.providerData[0]?.providerId === 'password') {
+    if (user && !user.emailVerified && user.providerData[0]?.providerId === 'password' && !isOrgEmail(user.email)) {
       // Email/password user who hasn't verified yet — show verification screen
       document.getElementById('auth-verify-email').textContent = user.email;
       authScreen.classList.remove('hidden');

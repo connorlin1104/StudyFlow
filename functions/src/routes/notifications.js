@@ -56,4 +56,54 @@ router.delete('/subscribe', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Test endpoint: immediately runs the notification check for the current user only
+// Call from browser console: apiFetch('POST', '/api/notifications/test', {})
+router.post('/test', async (req, res) => {
+  const webpush = require('web-push');
+  webpush.setVapidDetails(
+    process.env.VAPID_EMAIL,
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY
+  );
+
+  const now      = Date.now();
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  const subsSnap = await col().where('uid', '==', req.uid).get();
+  if (subsSnap.empty) return res.status(400).json({ error: 'No subscription found. Enable notifications first.' });
+
+  const subs = subsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const hwSnap = await db.collection('users').doc(req.uid).collection('homework')
+    .where('completed', '==', false)
+    .where('deadline', '>=', todayStr)
+    .get();
+
+  const sent = [];
+  for (const hwDoc of hwSnap.docs) {
+    const item = hwDoc.data();
+    if (!item.deadline || item.remindBefore === -1) continue;
+
+    for (const sub of subs) {
+      const remindMins = (item.remindBefore != null ? item.remindBefore : sub.notifyBefore) ?? 60;
+      const timeStr  = item.deadlineTime || '23:59';
+      const [hh, mm] = timeStr.split(':').map(Number);
+      const [y, mo, d] = item.deadline.split('-').map(Number);
+      const deadlineMs = new Date(y, mo - 1, d, hh, mm).getTime();
+      const minsLeft   = Math.round((deadlineMs - now) / 60000);
+      const body = `Test · Due in ${minsLeft > 60 ? Math.round(minsLeft/60)+'hr' : minsLeft+'min'}`;
+
+      try {
+        await webpush.sendNotification(
+          { endpoint: sub.endpoint, keys: sub.keys },
+          JSON.stringify({ title: item.description, body, url: '/' })
+        );
+        sent.push(item.description);
+      } catch (e) {
+        if (e.statusCode === 410) await db.collection('pushSubscriptions').doc(sub.id).delete();
+      }
+    }
+  }
+  res.json({ sent, count: sent.length });
+});
+
 module.exports = router;
