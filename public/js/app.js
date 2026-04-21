@@ -1183,59 +1183,102 @@ async function loadSchedule(file) {
 /* =============================================================================
    TEMPLATES
    ============================================================================= */
-async function applyStudentTemplate() {
+async function applyTemplate(btnId, templateName, tabs) {
   const hasData = state.tabs.length > 0 || state.classes.length > 0;
   if (hasData && !confirm(
-    'This will replace your current schedule with the student template.\n\n' +
+    `This will replace your current schedule with the ${templateName} template.\n\n` +
     'All existing tabs, groups, and assignments will be deleted. Continue?'
   )) return;
 
-  const btn = document.getElementById('student-template-btn');
+  const btn = document.getElementById(btnId);
   btn.disabled = true;
-
-  const CORE_SUBJECTS = [
-    { name: 'English',     color: '#ef4444' },
-    { name: 'Math',        color: '#3b82f6' },
-    { name: 'Science',     color: '#22c55e' },
-    { name: 'History',     color: '#f97316' },
-  ];
-  const ELECTIVE_COLORS = ['#8b5cf6', '#ec4899', '#14b8a6', '#eab308'];
-
   try {
     const [freshTabs, freshClasses, freshHomework] = await Promise.all([
       api.tabs.list(), api.classes.list(), api.homework.list()
     ]);
     for (const h of freshHomework) await api.homework.remove(h.id);
-    for (const c of freshClasses) await api.classes.remove(c.id);
-    for (const t of freshTabs)    await api.tabs.remove(t.id);
+    for (const c of freshClasses)  await api.classes.remove(c.id);
+    for (const t of freshTabs)     await api.tabs.remove(t.id);
     state.tabs = []; state.classes = []; state.homework = [];
 
-    const tab = await api.tabs.create({ name: 'Classes' });
-    state.tabs.push(tab);
-
-    for (let i = 0; i < CORE_SUBJECTS.length; i++) {
-      const cls = await api.classes.create({ ...CORE_SUBJECTS[i], tabId: tab.id });
-      state.classes.push(cls);
+    let firstTabId = null;
+    for (const tabDef of tabs) {
+      const tab = await api.tabs.create({ name: tabDef.name });
+      state.tabs.push(tab);
+      if (!firstTabId) firstTabId = tab.id;
+      for (const cls of tabDef.classes) {
+        const created = await api.classes.create({ ...cls, tabId: tab.id });
+        state.classes.push(created);
+      }
     }
-    for (let i = 0; i < 4; i++) {
-      const cls = await api.classes.create({ name: 'Elective', color: ELECTIVE_COLORS[i], tabId: tab.id });
-      state.classes.push(cls);
-    }
 
-    state.activeTabId = tab.id;
+    state.activeTabId = firstTabId;
     renderTabBar();
     renderSchedule();
     renderSummary();
     renderSettingsTabsList();
-    populateSettingsTabSelect(tab.id);
+    populateSettingsTabSelect(firstTabId);
     renderSettingsClassList();
     closeSettings();
-    toast('Student template applied', 'success');
+    toast(`${templateName} template applied`, 'success');
   } catch (err) {
     toast(`Template failed: ${err.message}`, 'error');
   } finally {
     btn.disabled = false;
   }
+}
+
+function applyStudentTemplate() {
+  return applyTemplate('student-template-btn', 'High School', [
+    { name: 'Classes', classes: [
+      { name: 'English',  color: '#ef4444' },
+      { name: 'Math',     color: '#3b82f6' },
+      { name: 'Science',  color: '#22c55e' },
+      { name: 'History',  color: '#f97316' },
+      { name: 'Elective', color: '#8b5cf6' },
+      { name: 'Elective', color: '#ec4899' },
+      { name: 'Elective', color: '#14b8a6' },
+      { name: 'Elective', color: '#eab308' },
+    ]},
+  ]);
+}
+
+function applyCollegeTemplate() {
+  return applyTemplate('college-template-btn', 'College', [
+    { name: 'Classes', classes: [
+      { name: 'Major Course 1', color: '#3b82f6' },
+      { name: 'Major Course 2', color: '#6366f1' },
+      { name: 'Major Course 3', color: '#8b5cf6' },
+      { name: 'Gen Ed 1',       color: '#22c55e' },
+      { name: 'Gen Ed 2',       color: '#14b8a6' },
+      { name: 'Elective 1',     color: '#f97316' },
+      { name: 'Elective 2',     color: '#eab308' },
+    ]},
+  ]);
+}
+
+function applyWorkTemplate() {
+  return applyTemplate('work-template-btn', 'Work', [
+    { name: 'Work', classes: [
+      { name: 'Projects',    color: '#3b82f6' },
+      { name: 'Meetings',    color: '#8b5cf6' },
+      { name: 'Tasks',       color: '#22c55e' },
+      { name: 'Follow-ups',  color: '#f97316' },
+      { name: 'Admin',       color: '#64748b' },
+    ]},
+  ]);
+}
+
+function applyPersonalTemplate() {
+  return applyTemplate('personal-template-btn', 'Personal', [
+    { name: 'Personal', classes: [
+      { name: 'Errands',      color: '#22c55e' },
+      { name: 'Appointments', color: '#3b82f6' },
+      { name: 'Goals',        color: '#8b5cf6' },
+      { name: 'Reminders',    color: '#f97316' },
+      { name: 'Health',       color: '#ef4444' },
+    ]},
+  ]);
 }
 
 /* =============================================================================
@@ -1397,12 +1440,10 @@ function wireEvents() {
   function openModal(id)  { document.getElementById(id).classList.add('modal--open'); }
   function closeModal(id) { document.getElementById(id).classList.remove('modal--open'); }
 
-  document.getElementById('student-template-btn').addEventListener('click', applyStudentTemplate);
-
-  // Suggest a Template — opens Google Form
-  document.getElementById('suggest-template-btn').addEventListener('click', () => {
-    window.open('https://docs.google.com/forms/d/e/1FAIpQLSdHt2PZsBoOdIXXcD5l-3AP12m8erIEv0pl4iNv671QUHy0Dg/viewform?usp=publish-editor', '_blank', 'noopener');
-  });
+  document.getElementById('student-template-btn').addEventListener('click',  applyStudentTemplate);
+  document.getElementById('college-template-btn').addEventListener('click',  applyCollegeTemplate);
+  document.getElementById('work-template-btn').addEventListener('click',     applyWorkTemplate);
+  document.getElementById('personal-template-btn').addEventListener('click', applyPersonalTemplate);
 
   document.getElementById('whats-new-btn').addEventListener('click',  () => openModal('whats-new-modal'));
   document.getElementById('privacy-btn').addEventListener('click',     () => openModal('privacy-modal'));
