@@ -149,9 +149,8 @@ body {
   grid-template-columns: 1fr 340px;
   overflow: hidden;
 }
-/* When summary panel is hidden, let main panel fill the full width */
-.app-body:has(.summary-panel.hidden) {
-  grid-template-columns: 1fr;
+.app-body:has(.summary-panel--collapsed) {
+  grid-template-columns: 1fr 16px;
 }
 
 /* ---- MAIN PANEL (left) ---- */
@@ -218,9 +217,51 @@ body {
 .summary-panel {
   border-left: 1px solid var(--border);
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   overflow: hidden;
   background: var(--surface);
+  transition: none;
+}
+
+/* Drag handle — always-visible left strip */
+.summary-drag-handle {
+  width: 16px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  transition: background var(--t);
+  user-select: none;
+}
+.summary-drag-handle:hover { background: var(--bg); }
+
+.summary-drag-chevron {
+  font-size: .85rem;
+  color: var(--text-muted);
+  line-height: 1;
+  transition: transform 150ms ease, color var(--t);
+  pointer-events: none;
+}
+.summary-drag-handle:hover .summary-drag-chevron { color: var(--primary); }
+
+/* Panel content fills remaining space */
+.summary-drag-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* Collapsed state — content hidden, chevron flips */
+.summary-panel--collapsed .summary-drag-content {
+  display: none;
+}
+.summary-panel--collapsed .summary-drag-chevron {
+  transform: rotate(180deg);
 }
 
 .summary-header {
@@ -1457,6 +1498,12 @@ kbd {
   color: var(--text);
   cursor: pointer;
   flex-shrink: 0;
+  margin-left: auto;
+}
+.pref-select--sm {
+  font-size: .75rem;
+  height: 24px;
+  max-width: 150px;
 }
 
 /* Toggle switch */

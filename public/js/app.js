@@ -129,7 +129,7 @@ function applyPrefs() {
 
   const showSummary = prefs.get('showSummary', true);
   const panel = document.querySelector('.summary-panel');
-  if (panel) panel.classList.toggle('hidden', !showSummary);
+  if (panel) panel.classList.toggle('summary-panel--collapsed', !showSummary);
 }
 
 /* =============================================================================
@@ -1431,7 +1431,63 @@ function wireEvents() {
   document.getElementById('pref-summary').addEventListener('change', e => {
     prefs.set('showSummary', e.target.checked);
     applyPrefs();
+    const chev = document.getElementById('summary-drag-chevron');
+    if (chev) chev.textContent = e.target.checked ? '‹' : '›';
   });
+
+  // Summary panel drag-to-collapse
+  (function() {
+    const handle   = document.getElementById('summary-drag-handle');
+    const panel    = document.querySelector('.summary-panel');
+    const appBody  = document.querySelector('.app-body');
+    if (!handle || !panel || !appBody) return;
+
+    const EXPANDED  = 340;
+    const COLLAPSED = 16;
+    const SNAP      = 120;
+
+    let dragging = false, startX = 0, startW = 0;
+
+    handle.addEventListener('mousedown', e => {
+      dragging = true;
+      startX   = e.clientX;
+      startW   = panel.offsetWidth;
+      document.body.style.cursor    = 'col-resize';
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      const w = Math.max(COLLAPSED, Math.min(EXPANDED, startW - (e.clientX - startX)));
+      appBody.style.gridTemplateColumns = `1fr ${w}px`;
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      document.body.style.cursor     = '';
+      document.body.style.userSelect = '';
+      const w       = panel.offsetWidth;
+      const collapse = w < SNAP;
+      appBody.style.gridTemplateColumns = '';
+      setSummaryCollapsed(collapse);
+    });
+
+    handle.addEventListener('click', e => {
+      if (Math.abs(e.clientX - startX) > 4) return; // was a drag, not click
+      setSummaryCollapsed(!panel.classList.contains('summary-panel--collapsed'));
+    });
+
+    function setSummaryCollapsed(collapse) {
+      panel.classList.toggle('summary-panel--collapsed', collapse);
+      const chev = document.getElementById('summary-drag-chevron');
+      if (chev) chev.textContent = collapse ? '›' : '‹';
+      prefs.set('showSummary', !collapse);
+      const toggle = document.getElementById('pref-summary');
+      if (toggle) toggle.checked = !collapse;
+    }
+  })();
   document.getElementById('pref-notifications').addEventListener('change', e => {
     if (e.target.checked) subscribeToNotifications();
     else unsubscribeFromNotifications();

@@ -141,6 +141,10 @@
 
     <!-- RIGHT: upcoming summary -->
     <aside class="summary-panel">
+      <div class="summary-drag-handle" id="summary-drag-handle">
+        <span class="summary-drag-chevron" id="summary-drag-chevron">‹</span>
+      </div>
+      <div class="summary-drag-content">
       <div class="summary-header">
         <span class="summary-title">Upcoming</span>
         <span class="summary-count hidden" id="summary-count">0</span>
@@ -149,6 +153,7 @@
       <div id="summary-empty" class="summary-empty hidden">
         <p>No upcoming assignments ✓</p>
       </div>
+      </div><!-- /.summary-drag-content -->
     </aside>
 
   </div><!-- /.app-body -->
@@ -320,7 +325,7 @@
               <div class="pref-row">
                 <div class="pref-info">
                   <span class="pref-label">Push notifications</span>
-                  <span class="pref-desc">Remind you before items are due</span>
+                  <span class="pref-desc">Reminders before items are due</span>
                 </div>
                 <label class="toggle-switch">
                   <input type="checkbox" id="pref-notifications">
@@ -330,8 +335,9 @@
               <div class="pref-row" id="pref-notify-before-row">
                 <div class="pref-info">
                   <span class="pref-label">Default reminder</span>
+                  <span class="pref-desc">How early to notify before each deadline</span>
                 </div>
-                <select id="pref-notify-before" class="pref-select">
+                <select id="pref-notify-before" class="pref-select pref-select--sm">
                   <option value="30">30 minutes before</option>
                   <option value="60" selected>1 hour before</option>
                   <option value="120">2 hours before</option>
