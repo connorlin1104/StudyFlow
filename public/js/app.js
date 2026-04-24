@@ -305,7 +305,7 @@ function renderTabBar() {
   });
   const addBtn = document.createElement('button');
   addBtn.className = 'tab tab--add';
-  addBtn.title = 'Add or manage tabs';
+  addBtn.title = 'Add or manage spaces';
   addBtn.textContent = '+';
   addBtn.addEventListener('click', () => openSettings('tabs'));
   list.appendChild(addBtn);
@@ -328,16 +328,19 @@ function renderSchedule() {
   if (tabClasses.length === 0) {
     container.innerHTML = '';
     const activeTab = state.tabs.find(t => t.id === state.activeTabId);
-    const templateHint = document.getElementById('empty-template-hint');
+    const welcomeActions = document.getElementById('empty-actions-welcome');
+    const tabActions     = document.getElementById('empty-actions-tab');
     if (!activeTab) {
-      emptyState.querySelector('h2').textContent = 'No tabs yet';
-      emptyState.querySelector('p').textContent  = 'Open Settings to add tabs';
-      if (templateHint) templateHint.classList.remove('hidden');
+      document.getElementById('empty-heading').textContent  = 'Welcome to StudyFlow';
+      document.getElementById('empty-subtext').textContent  = 'Pick a template to get started, or set things up yourself.';
+      welcomeActions.classList.remove('hidden');
+      tabActions.classList.add('hidden');
     } else {
-      if (templateHint) templateHint.classList.add('hidden');
-      const plural = activeTab.name;
-      emptyState.querySelector('h2').textContent = `No ${plural.toLowerCase()} yet`;
-      emptyState.querySelector('p').textContent  = `Open Settings to add ${plural.toLowerCase()} to this tab`;
+      const name = activeTab.name;
+      document.getElementById('empty-heading').textContent  = `No ${name.toLowerCase()} yet`;
+      document.getElementById('empty-subtext').textContent  = `Open Settings to add topics to this space`;
+      welcomeActions.classList.add('hidden');
+      tabActions.classList.remove('hidden');
     }
     emptyState.classList.remove('hidden');
     return;
@@ -551,7 +554,7 @@ function renderSettingsTabsList() {
    ============================================================================= */
 function tabItemLabel(tabId) {
   const tab = state.tabs.find(t => t.id === tabId);
-  if (!tab) return 'Group';
+  if (!tab) return 'Topic';
   return singularize(tab.name.trim());
 }
 
@@ -566,7 +569,7 @@ function renderSettingsClassList() {
   document.getElementById('add-group-btn').textContent = `+ Add ${article(label)} ${label}`;
 
   if (classes.length === 0) {
-    list.innerHTML = `<p class="settings-empty">No ${plural.toLowerCase()} in this tab yet</p>`;
+    list.innerHTML = `<p class="settings-empty">No ${plural.toLowerCase()} in this space yet</p>`;
     return;
   }
   list.innerHTML = '';
@@ -669,7 +672,7 @@ function selectSwatch(color) {
    ============================================================================= */
 function openHwModal(preselectedClassId = null) {
   if (state.classes.length === 0) {
-    toast('Add some groups first in Settings.', 'warning');
+    toast('Add some topics first in Settings.', 'warning');
     return;
   }
   document.getElementById('hw-form').reset();
@@ -849,7 +852,7 @@ function startEditClass(cls) {
   document.getElementById('class-teacher').value           = cls.teacher || '';
   document.getElementById('class-room').value              = cls.room    || '';
   document.getElementById('class-period').value            = cls.period  || '';
-  document.getElementById('group-form-title').textContent  = 'Edit Group';
+  document.getElementById('group-form-title').textContent  = 'Edit Topic';
   document.getElementById('class-form-submit').textContent = 'Save Changes';
   selectSwatch(cls.color || PRESET_COLORS[4]);
   openGroupForm();
@@ -980,7 +983,7 @@ async function handleAddTab(e) {
     renderSettingsClassList();
     closeSettings();
     renderSchedule();
-    toast(`Added tab "${name}"`, 'success');
+    toast(`Added space "${name}"`, 'success');
   } catch (err) { 
     toast(`Error: ${err.message}`, 'error'); 
   }
@@ -992,9 +995,9 @@ async function handleDeleteTab(tabId) {
   const tabCls = state.classes.filter(c => c.tabId === tabId);
   const hwCount = state.homework.filter(h => tabCls.some(c => c.id === h.classId)).length;
   const subMsg = tabCls.length
-    ? `This will also delete ${tabCls.length} group${tabCls.length !== 1 ? 's' : ''} and ${hwCount} assignment${hwCount !== 1 ? 's' : ''}.`
+    ? `This will also delete ${tabCls.length} topic${tabCls.length !== 1 ? 's' : ''} and ${hwCount} assignment${hwCount !== 1 ? 's' : ''}.`
     : '';
-  if (!await showConfirm({ title: `Delete "${tab.name}"?`, message: subMsg, confirmText: 'Delete Tab', icon: '🗑️' })) return;
+  if (!await showConfirm({ title: `Delete "${tab.name}"?`, message: subMsg, confirmText: 'Delete Space', icon: '🗑️' })) return;
 
   try {
     await api.tabs.remove(tabId);
@@ -1008,7 +1011,7 @@ async function handleDeleteTab(tabId) {
     renderSettingsTabsList();
     populateSettingsTabSelect(state.activeTabId);
     renderSettingsClassList();
-    toast(`Deleted tab "${tab.name}"`, 'info');
+    toast(`Deleted space "${tab.name}"`, 'info');
 
     const { id: _id, createdAt: _ca, ...tabFields } = tab;
     const clsSnapshots = tabCls.map(({ id: _i, tabId: _t, createdAt: _c, ...f }) => f);
@@ -1022,7 +1025,7 @@ async function handleDeleteTab(tabId) {
         renderTabBar(); renderSettingsTabsList();
         populateSettingsTabSelect(restored.id); renderSettingsClassList();
         renderSchedule(); renderSummary();
-        toast(`Restored tab "${tab.name}"`, 'success');
+        toast(`Restored space "${tab.name}"`, 'success');
       },
       async redo() {
         const r = state.tabs.find(t => t.name === tab.name && t.id !== 'classes');
@@ -1035,7 +1038,7 @@ async function handleDeleteTab(tabId) {
         if (state.activeTabId === r.id) state.activeTabId = state.tabs.filter(t => t.id !== r.id)[0]?.id ?? null;
         renderTabBar(); renderSchedule(); renderSummary();
         renderSettingsTabsList(); populateSettingsTabSelect(state.activeTabId); renderSettingsClassList();
-        toast(`Deleted tab "${tab.name}"`, 'info');
+        toast(`Deleted space "${tab.name}"`, 'info');
       }
     });
   } catch (err) { toast(`Error: ${err.message}`, 'error'); }
@@ -1119,7 +1122,7 @@ async function handleDeleteClass(classId) {
   const clsSubMsg = clsHw.length
     ? `This will also delete ${clsHw.length} assignment${clsHw.length !== 1 ? 's' : ''}.`
     : '';
-  if (!await showConfirm({ title: `Delete "${cls.name}"?`, message: clsSubMsg, confirmText: 'Delete Group', icon: '🗑️' })) return;
+  if (!await showConfirm({ title: `Delete "${cls.name}"?`, message: clsSubMsg, confirmText: 'Delete Topic', icon: '🗑️' })) return;
 
   try {
     await api.classes.remove(classId);
@@ -1194,7 +1197,7 @@ async function loadSchedule(file) {
     toast('Invalid schedule file', 'error');
     return;
   }
-  if (!await showConfirm({ title: 'Replace current schedule?', message: 'This will delete all your existing tabs, groups, and assignments.', confirmText: 'Replace', icon: '⚠️' })) return;
+  if (!await showConfirm({ title: 'Replace current schedule?', message: 'This will delete all your existing spaces, topics, and assignments.', confirmText: 'Replace', icon: '⚠️' })) return;
 
   try {
     // Delete all existing data
@@ -1431,8 +1434,9 @@ function wireEvents() {
   buildTimePickerOptions();
   document.getElementById('add-hw-btn').addEventListener('click', () => openHwModal());
   document.getElementById('settings-btn').addEventListener('click', () => openSettings('account'));
-  document.getElementById('empty-settings-btn').addEventListener('click', () => openSettings(state.tabs.length === 0 ? 'tabs' : 'classes'));
+  document.getElementById('empty-settings-btn').addEventListener('click', () => openSettings('tabs'));
   document.getElementById('empty-template-btn').addEventListener('click', () => openSettings('templates'));
+  document.getElementById('empty-add-group-btn').addEventListener('click', () => openSettings('classes'));
   document.getElementById('user-avatar').addEventListener('click', () => openSettings('account'));
 
   document.getElementById('undo-btn').addEventListener('click', () => history.undo());
@@ -1593,7 +1597,7 @@ function wireEvents() {
             tab.name = newName;
             renderTabBar();
             populateSettingsTabSelect(state.activeTabId);
-            toast(`Renamed tab to "${newName}"`, 'success');
+            toast(`Renamed space to "${newName}"`, 'success');
           } catch (err) {
             toast(`Error: ${err.message}`, 'error');
           }
@@ -1655,13 +1659,61 @@ function wireEvents() {
   document.getElementById('whats-new-backdrop').addEventListener('click', () => closeModal('whats-new-modal'));
   document.getElementById('privacy-backdrop').addEventListener('click',   () => closeModal('privacy-modal'));
 
+  // FAQ accordion
+  document.querySelector('.faq-list').addEventListener('click', e => {
+    const btn = e.target.closest('.faq-question');
+    if (!btn) return;
+    const item = btn.closest('.faq-item');
+    const isOpen = item.classList.contains('open');
+    document.querySelectorAll('.faq-item.open').forEach(el => el.classList.remove('open'));
+    if (!isOpen) item.classList.add('open');
+  });
+
+  // Contact modal
+  const contactModal    = document.getElementById('contact-modal');
+  const contactForm     = document.getElementById('contact-form');
+  const contactStatus   = document.getElementById('contact-status');
+  function openContactModal() {
+    contactForm.reset();
+    contactStatus.style.display = 'none';
+    contactModal.classList.add('modal--open');
+  }
+  function closeContactModal() { contactModal.classList.remove('modal--open'); }
+  document.getElementById('contact-btn').addEventListener('click',    openContactModal);
+  document.getElementById('contact-close').addEventListener('click',  closeContactModal);
+  document.getElementById('contact-cancel').addEventListener('click', closeContactModal);
+  document.getElementById('contact-backdrop').addEventListener('click', closeContactModal);
+  contactForm.addEventListener('submit', async e => {
+    e.preventDefault();
+    const subject = document.getElementById('contact-subject').value;
+    const message = document.getElementById('contact-message').value.trim();
+    if (!message) return;
+    const btn = document.getElementById('contact-submit');
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+    contactStatus.style.display = 'none';
+    try {
+      await apiFetch('POST', '/api/support', { subject, message });
+      contactStatus.style.cssText = 'display:block; color: var(--success, #22c55e); font-size:.875rem;';
+      contactStatus.textContent = 'Message sent — we\'ll get back to you soon.';
+      contactForm.querySelector('textarea').value = '';
+      btn.textContent = 'Send Message';
+      btn.disabled = false;
+    } catch (err) {
+      contactStatus.style.cssText = 'display:block; color: #ef4444; font-size:.875rem;';
+      contactStatus.textContent = `Failed to send: ${err.message}`;
+      btn.textContent = 'Send Message';
+      btn.disabled = false;
+    }
+  });
+
   // Keyboard shortcuts
   document.addEventListener('keydown', e => {
     const mod = e.metaKey || e.ctrlKey;
     if (mod && e.key==='z' && !e.shiftKey) { e.preventDefault(); history.undo(); return; }
     if (mod && (e.key==='y' || (e.key==='z' && e.shiftKey))) { e.preventDefault(); history.redo(); return; }
     if (e.key==='Escape') {
-      closeHwModal(); closeSettings(); closeGroupForm();
+      closeHwModal(); closeSettings(); closeGroupForm(); closeContactModal();
       closeModal('whats-new-modal'); closeModal('privacy-modal');
     }
   });

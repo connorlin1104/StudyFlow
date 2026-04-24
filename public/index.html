@@ -130,11 +130,16 @@
         <div id="empty-state" class="empty-state hidden">
           <div class="empty-state-body">
             <div class="empty-icon">&#x1F4DA;</div>
-            <h2>No Tabs yet</h2>
-            <p>Open Settings to Add Tabs</p>
-            <button class="btn btn-primary" id="empty-settings-btn">Open Settings</button>
+            <h2 id="empty-heading">Welcome to StudyFlow</h2>
+            <p id="empty-subtext">Pick a template to get started, or set things up yourself.</p>
+            <div id="empty-actions-welcome" class="empty-state-actions">
+              <button class="btn btn-primary" id="empty-template-btn">Browse Templates</button>
+              <button class="btn btn-secondary" id="empty-settings-btn">Set Up Manually</button>
+            </div>
+            <div id="empty-actions-tab" class="empty-state-actions hidden">
+              <button class="btn btn-primary" id="empty-add-group-btn">Open Settings</button>
+            </div>
           </div>
-          <p id="empty-template-hint" class="empty-template-hint hidden">Not sure where to start? <button class="btn-link" id="empty-template-btn">Browse templates</button></p>
         </div>
       </div>
     </div>
@@ -171,7 +176,7 @@
       <form id="hw-form" novalidate>
         <input type="hidden" id="hw-edit-id">
         <div class="form-group">
-          <label for="hw-class">Class / Group <span class="required">*</span></label>
+          <label for="hw-class">Topic <span class="required">*</span></label>
           <select id="hw-class" required></select>
         </div>
         <div class="form-group">
@@ -236,8 +241,8 @@
           <button class="settings-nav-item" data-page="account">Account</button>
           <button class="settings-nav-item" data-page="preferences">Preferences</button>
           <div class="settings-nav-divider"></div>
-          <button class="settings-nav-item" data-page="tabs">Managing Tabs</button>
-          <button class="settings-nav-item" data-page="classes">Managing Groups</button>
+          <button class="settings-nav-item" data-page="tabs">Spaces</button>
+          <button class="settings-nav-item" data-page="classes">Topics</button>
           <button class="settings-nav-item" data-page="templates">Templates</button>
           <div class="settings-nav-divider"></div>
           <button class="settings-nav-item" data-page="help">Help</button>
@@ -351,11 +356,11 @@
           <!-- PAGE: Managing Tabs -->
           <div id="settings-page-tabs" class="settings-page hidden">
             <div class="settings-section">
-              <h3 class="settings-section-label">Tabs</h3>
+              <h3 class="settings-section-label">Spaces</h3>
               <div id="settings-tabs-list"></div>
               <form id="tab-form" class="inline-form">
-                <input type="text" id="tab-name" placeholder="New tab name (e.g. Classes, Clubs, Reminders)" autocomplete="off">
-                <button type="submit" class="btn btn-sm btn-primary">Add Tab</button>
+                <input type="text" id="tab-name" placeholder="New space name (e.g. Classes, Clubs, Reminders)" autocomplete="off">
+                <button type="submit" class="btn btn-sm btn-primary">Add Space</button>
               </form>
             </div>
           </div>
@@ -401,6 +406,66 @@
                   </div>
                   <span class="help-item-arrow">&#x2197;</span>
                 </a>
+                <button class="help-item" id="contact-btn">
+                  <span class="help-item-icon">&#x2709;&#xFE0F;</span>
+                  <div class="help-item-body">
+                    <span class="help-item-title">Ask a Question</span>
+                    <span class="help-item-desc">Send us a message and we'll get back to you</span>
+                  </div>
+                  <span class="help-item-arrow">&#x203A;</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <h3 class="settings-section-label">Frequently Asked Questions</h3>
+              <div class="faq-list">
+
+                <div class="faq-item">
+                  <button class="faq-question">What are Spaces?</button>
+                  <div class="faq-answer">Spaces are your top-level categories — like <strong>Classes</strong>, <strong>Clubs</strong>, <strong>Work</strong>, or <strong>Chores</strong>. Create them in Settings → Spaces. Each space holds its own topics.</div>
+                </div>
+
+                <div class="faq-item">
+                  <button class="faq-question">What are Topics?</button>
+                  <div class="faq-answer">Topics live inside a space and hold individual tasks. For example, under a <strong>Classes</strong> space you'd have topics like Math, English, and Science — each with its own assignments.</div>
+                </div>
+
+                <div class="faq-item">
+                  <button class="faq-question">How do I get started quickly?</button>
+                  <div class="faq-answer">Go to <strong>Settings → Templates</strong> to pick a pre-built layout (High School, College, Work, or Personal). Your spaces and topics will be created automatically — you can customize them after.</div>
+                </div>
+
+                <div class="faq-item">
+                  <button class="faq-question">How do I add a task or assignment?</button>
+                  <div class="faq-answer">Click the <strong>+</strong> button in the top toolbar, or the small <strong>+</strong> button on any topic card. Fill in the description, optionally set a due date, and hit Save.</div>
+                </div>
+
+                <div class="faq-item">
+                  <button class="faq-question">Can I set due dates and times?</button>
+                  <div class="faq-answer">Yes — when adding or editing an item, pick a deadline date. You can also set a specific time. Items without a due date appear at the top of each topic.</div>
+                </div>
+
+                <div class="faq-item">
+                  <button class="faq-question">What is the Summary panel?</button>
+                  <div class="faq-answer">The panel on the right shows your most urgent upcoming items across all topics, sorted by due date. Drag its left edge to resize it, or click the collapse handle to hide it.</div>
+                </div>
+
+                <div class="faq-item">
+                  <button class="faq-question">How do I change the theme?</button>
+                  <div class="faq-answer">Go to <strong>Settings → Preferences</strong>. You can choose Light, Dark, Cyber, or Neon and pick a custom accent color.</div>
+                </div>
+
+                <div class="faq-item">
+                  <button class="faq-question">Can I undo a mistake?</button>
+                  <div class="faq-answer">Yes — use the undo and redo arrows in the top toolbar to step back or forward through your recent actions.</div>
+                </div>
+
+                <div class="faq-item">
+                  <button class="faq-question">What happens when I delete a topic?</button>
+                  <div class="faq-answer">Deleting a topic permanently removes it <strong>and all tasks inside it</strong>. This cannot be undone, so a confirmation is shown first.</div>
+                </div>
+
               </div>
             </div>
           </div>
@@ -472,7 +537,7 @@
     <div class="modal-backdrop" id="group-form-backdrop"></div>
     <div class="modal-box">
       <div class="modal-header">
-        <h2 id="group-form-title">Add New Group</h2>
+        <h2 id="group-form-title">Add New Topic</h2>
         <button class="close-btn" id="close-group-form" aria-label="Close">&times;</button>
       </div>
       <div class="modal-form-body">
@@ -510,7 +575,7 @@
 
           <div class="form-actions">
             <button type="button" class="btn btn-secondary" id="cancel-edit-class">Cancel</button>
-            <button type="submit" class="btn btn-primary" id="class-form-submit">Add Group</button>
+            <button type="submit" class="btn btn-primary" id="class-form-submit">Add Topic</button>
           </div>
         </form>
       </div>
@@ -528,6 +593,17 @@
         <button class="close-btn" id="close-whats-new" aria-label="Close">&times;</button>
       </div>
       <div class="release-notes">
+        <div class="release-block">
+          <h3 class="release-version">v1.8 &mdash; April 2026</h3>
+          <ul>
+            <li>Renamed &ldquo;Tabs&rdquo; to <strong>Spaces</strong> and &ldquo;Groups&rdquo; to <strong>Topics</strong> throughout the app</li>
+            <li>Welcome empty state &mdash; new accounts see a &ldquo;Browse Templates&rdquo; and &ldquo;Set Up Manually&rdquo; prompt instead of a bare settings link</li>
+            <li>Help Center &mdash; FAQ accordion with 9 questions and an &ldquo;Ask a Question&rdquo; contact form saved to your account</li>
+            <li>Custom confirm dialogs &mdash; delete and replace prompts now match the app&rsquo;s theme instead of using the browser default</li>
+            <li>No-due-date items now appear at the <em>top</em> of each topic list instead of the bottom</li>
+            <li>Chrome fixes: date calendar picker now visible, buttons no longer render oversized, drag handle visible in all themes</li>
+          </ul>
+        </div>
         <div class="release-block">
           <h3 class="release-version">v1.7 &mdash; April 2026</h3>
           <ul>
@@ -628,13 +704,13 @@
       <div class="privacy-content">
         <p class="privacy-lead">StudyFlow is a personal scheduler built for students.</p>
         <h3>Your Data</h3>
-        <p>Everything you enter &mdash; tabs, classes, assignments, deadlines &mdash; is stored in <strong>Google Firestore</strong> under your account. Only you can read or write your own data; Firestore security rules block all cross-user access.</p>
+        <p>Everything you enter &mdash; spaces, topics, assignments, deadlines &mdash; is stored in <strong>Google Firestore</strong> under your account. Only you can read or write your own data; Firestore security rules block all cross-user access.</p>
         <h3>Sign-in</h3>
         <p>StudyFlow uses <strong>Google Sign-In</strong> via Firebase Auth. We only receive your name, email address, and profile photo from Google to display in the Account panel. We do not store passwords.</p>
         <h3>No Tracking</h3>
         <p>StudyFlow does not use analytics, advertising, or any third-party tracking beyond Firebase services (Auth and Firestore). We do not sell your data or share it with anyone.</p>
         <h3>Data Deletion</h3>
-        <p>Deleting a tab removes all its classes and assignments from Firestore immediately. To delete your entire account and all associated data, use the Schedule Transfer page to export first, then contact us.</p>
+        <p>Deleting a space removes all its topics and assignments from Firestore immediately. To delete your entire account and all associated data, use the Schedule Transfer page to export first, then contact us.</p>
         <p class="privacy-footer-note">Your data is stored in your Google account &mdash; we don&rsquo;t sell or share it.</p>
       </div>
     </div>
@@ -661,6 +737,38 @@
         <button class="btn btn-secondary" id="confirm-cancel">Cancel</button>
         <button class="btn btn-danger"    id="confirm-ok">Delete</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Contact / Ask a Question modal -->
+  <div id="contact-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="contact-modal-title">
+    <div class="modal-backdrop" id="contact-backdrop"></div>
+    <div class="modal-box contact-box">
+      <div class="modal-header">
+        <h2 id="contact-modal-title">Ask a Question</h2>
+        <button class="close-btn" id="contact-close" aria-label="Close">&times;</button>
+      </div>
+      <form id="contact-form">
+        <div class="form-group">
+          <label for="contact-subject">Topic</label>
+          <select id="contact-subject">
+            <option value="General Question">General Question</option>
+            <option value="How To">How To / Getting Started</option>
+            <option value="Bug Report">Bug Report</option>
+            <option value="Feature Request">Feature Request</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="contact-message">Message</label>
+          <textarea id="contact-message" rows="5" placeholder="Describe your question or issue…" required></textarea>
+        </div>
+        <div class="form-group" id="contact-status" style="display:none;"></div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="contact-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="contact-submit">Send Message</button>
+        </div>
+      </form>
     </div>
   </div>
 

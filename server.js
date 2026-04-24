@@ -7,6 +7,7 @@ const tabRoutes           = require('./src/routes/tabs');
 const classRoutes         = require('./src/routes/classes');
 const homeworkRoutes      = require('./src/routes/homework');
 const notificationRoutes  = require('./src/routes/notifications');
+const supportRoutes       = require('./src/routes/support');
 const errorHandler        = require('./src/middleware/errorHandler');
 const requireAuth         = require('./src/middleware/auth');
 
@@ -24,6 +25,7 @@ app.use('/api/tabs',          requireAuth, tabRoutes);
 app.use('/api/classes',       requireAuth, classRoutes);
 app.use('/api/homework',      requireAuth, homeworkRoutes);
 app.use('/api/notifications', requireAuth, notificationRoutes);
+app.use('/api/support',       requireAuth, supportRoutes);
 
 app.use(errorHandler);
 

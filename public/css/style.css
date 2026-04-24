@@ -579,15 +579,8 @@ body {
 }
 .empty-state .empty-icon { font-size: 3rem; margin-bottom: 16px; }
 .empty-state h2 { font-size: 1.2rem; color: var(--text); margin-bottom: 8px; }
-.empty-state p  { margin-bottom: 24px; }
-.empty-template-hint {
-  position: absolute;
-  bottom: 16px;
-  left: 0;
-  right: 0;
-  font-size: .85rem;
-  margin: 0;
-}
+.empty-state p  { margin-bottom: 20px; }
+.empty-state-actions { display: flex; flex-direction: column; gap: 8px; align-items: center; }
 .btn-link { background: none; border: none; padding: 0; color: var(--primary); cursor: pointer; font-size: inherit; text-decoration: underline; }
 .btn-link:hover { color: var(--primary-hover); }
 
@@ -1092,6 +1085,46 @@ kbd {
   margin-top: 22px;
 }
 .confirm-actions .btn { min-width: 88px; }
+
+/* =============================================================================
+   FAQ ACCORDION
+   ============================================================================= */
+.faq-list { border-top: 1px solid var(--border); }
+.faq-item { border-bottom: 1px solid var(--border); }
+.faq-question {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 13px 4px;
+  font-size: .875rem;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.4;
+}
+.faq-question::after { content: '+'; font-size: 1rem; color: var(--text-muted); flex-shrink: 0; }
+.faq-item.open .faq-question::after { content: '\2212'; }
+.faq-answer {
+  display: none;
+  font-size: .85rem;
+  color: var(--text-muted);
+  padding: 0 4px 14px;
+  line-height: 1.65;
+}
+.faq-answer strong { color: var(--text); }
+.faq-item.open .faq-answer { display: block; }
+
+/* =============================================================================
+   CONTACT MODAL
+   ============================================================================= */
+.contact-box { max-width: 460px; padding: 28px; }
+.contact-box textarea { resize: vertical; min-height: 100px; }
+.modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 
 /* =============================================================================
    AUTH SCREEN
