@@ -349,8 +349,8 @@ function renderSchedule() {
       .filter(h => h.classId===cls.id && !h.completed)
       .sort((a,b) => {
         if (!a.deadline && !b.deadline) return 0;
-        if (!a.deadline) return 1;
-        if (!b.deadline) return -1;
+        if (!a.deadline) return -1;
+        if (!b.deadline) return 1;
         return new Date(a.deadline + (a.deadlineTime ? `T${a.deadlineTime}` : 'T23:59')) - new Date(b.deadline + (b.deadlineTime ? `T${b.deadlineTime}` : 'T23:59'));
       });
     container.appendChild(buildClassRow(cls, pending));
