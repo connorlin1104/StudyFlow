@@ -1562,8 +1562,8 @@ function wireEvents() {
     btn.disabled = true;
     btn.textContent = 'Sending…';
     try {
-      const { count } = await apiFetch('POST', '/api/notifications/test', {});
-      toast(count > 0 ? `Test sent for ${count} item${count > 1 ? 's' : ''}` : 'No upcoming items to notify about', count > 0 ? 'success' : 'warning');
+      await apiFetch('POST', '/api/notifications/test', {});
+      toast('Test notification sent!', 'success');
     } catch (err) {
       toast(`Test failed: ${err.message}`, 'error');
     } finally {
