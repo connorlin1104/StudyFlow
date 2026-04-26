@@ -45,13 +45,9 @@ router.put('/subscribe', async (req, res) => {
 });
 
 router.delete('/subscribe', async (req, res) => {
-  const { endpoint } = req.body;
-  if (!endpoint) return res.status(400).json({ error: 'endpoint required' });
   try {
-    const snap = await col().where('uid', '==', req.uid)
-                            .where('endpoint', '==', endpoint)
-                            .limit(1).get();
-    if (!snap.empty) await snap.docs[0].ref.delete();
+    const snap = await col().where('uid', '==', req.uid).get();
+    await Promise.all(snap.docs.map(d => d.ref.delete()));
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -72,8 +68,9 @@ router.post('/test', async (req, res) => {
     const subsSnap = await col().where('uid', '==', req.uid).get();
     if (subsSnap.empty) return res.status(400).json({ error: 'No subscription found. Enable notifications first.' });
 
-    const pubKeyInUse = toUrlSafe(process.env.VAPID_PUBLIC_KEY).slice(0, 12);
     const payload = JSON.stringify({ title: 'StudyFlow', body: 'Notifications are working!', url: '/' });
+    let sent = 0;
+    let lastErr = null;
     for (const doc of subsSnap.docs) {
       const sub = doc.data();
       try {
@@ -81,11 +78,13 @@ router.post('/test', async (req, res) => {
           webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, payload),
           new Promise((_, reject) => setTimeout(() => reject(new Error('push timeout')), 8000))
         ]);
+        sent++;
       } catch (e) {
-        if (e.statusCode === 410) await doc.ref.delete();
-        else throw new Error(`Push failed (${e.statusCode ?? 'no status'}): ${e.body ?? e.message} [pub:${pubKeyInUse}] [ep:${sub.endpoint.slice(-20)}]`);
+        if (e.statusCode === 410 || e.statusCode === 403) await doc.ref.delete();
+        lastErr = e;
       }
     }
+    if (sent === 0) return res.status(500).json({ error: `Push failed: ${lastErr?.body ?? lastErr?.message ?? 'unknown'}` });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
