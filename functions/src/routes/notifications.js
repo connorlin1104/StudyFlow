@@ -89,6 +89,8 @@ router.post('/test', async (req, res) => {
       } catch (e) {
         if (e.statusCode === 410 || e.statusCode === 403) await doc.ref.delete();
         lastErr = e;
+        debug.failedEp = sub.endpoint.slice(-40);
+        debug.statusCode = e.statusCode;
       }
     }
     if (sent === 0) return res.status(500).json({ error: `Push failed: ${lastErr?.body ?? lastErr?.message ?? 'unknown'}`, debug });
