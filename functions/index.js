@@ -1,7 +1,6 @@
 'use strict';
-// v2
+// v3
 const { onRequest }  = require('firebase-functions/v2/https');
-const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { defineSecret } = require('firebase-functions/params');
 const express        = require('express');
 const webpush        = require('web-push');
@@ -21,6 +20,63 @@ const VAPID_EMAIL       = defineSecret('VAPID_EMAIL');
 const app = express();
 app.use(express.json());
 
+// Internal endpoint called by Cloud Tasks — no user auth, verified by queue header
+app.post('/internal/notify', async (req, res) => {
+  if (!req.headers['x-cloudtasks-queuename']) return res.status(403).send('Forbidden');
+  const { uid, hwId } = req.body;
+  if (!uid || !hwId) return res.status(400).send('Missing uid or hwId');
+  try {
+    const toUrlSafe = s => s.trim().replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    webpush.setVapidDetails(
+      process.env.VAPID_EMAIL.trim(),
+      toUrlSafe(process.env.VAPID_PUBLIC_KEY),
+      toUrlSafe(process.env.VAPID_PRIVATE_KEY)
+    );
+
+    const hwRef = db.collection('users').doc(uid).collection('homework').doc(hwId);
+    const hwDoc = await hwRef.get();
+    if (!hwDoc.exists) return res.sendStatus(200);
+
+    const item = hwDoc.data();
+    if (item.completed || item.remindBefore === -1 || item.remindedAt) return res.sendStatus(200);
+
+    const subsSnap = await db.collection('pushSubscriptions').where('uid', '==', uid).get();
+    if (subsSnap.empty) return res.sendStatus(200);
+
+    let className = '';
+    try {
+      const clsDoc = await db.collection('users').doc(uid).collection('classes').doc(item.classId).get();
+      if (clsDoc.exists) className = clsDoc.data().name;
+    } catch (_) {}
+
+    const now = Date.now();
+    const deadlineMs = item.deadlineMs ?? (() => {
+      const [hh, mm] = (item.deadlineTime || '23:59').split(':').map(Number);
+      const [y, mo, d] = item.deadline.split('-').map(Number);
+      return new Date(Date.UTC(y, mo - 1, d, hh, mm)).getTime();
+    })();
+    const minsLeft = Math.round((deadlineMs - now) / 60000);
+    const body = minsLeft > 60
+      ? `Due in ${Math.round(minsLeft / 60)} hr${minsLeft > 90 ? 's' : ''}${className ? ' · ' + className : ''}`
+      : `Due in ${minsLeft} min${className ? ' · ' + className : ''}`;
+
+    const payload = JSON.stringify({ title: item.description, body, url: '/' });
+    for (const doc of subsSnap.docs) {
+      const sub = doc.data();
+      try {
+        await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, payload);
+      } catch (err) {
+        if (err.statusCode === 410) await doc.ref.delete();
+      }
+    }
+    await hwRef.update({ remindedAt: FieldValue.serverTimestamp() });
+    res.sendStatus(200);
+  } catch (e) {
+    console.error('internal/notify error:', e);
+    res.status(500).send(e.message);
+  }
+});
+
 app.use('/api/tabs',          requireAuth, tabRoutes);
 app.use('/api/classes',       requireAuth, classRoutes);
 app.use('/api/homework',      requireAuth, homeworkRoutes);
@@ -29,93 +85,15 @@ app.use(errorHandler);
 
 exports.api = onRequest({ invoker: 'public', secrets: [VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_EMAIL] }, app);
 
-exports.scheduledNotifications = onSchedule(
-  { schedule: 'every 15 minutes', secrets: [VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_EMAIL] },
-  async () => {
-    const toUrlSafe = s => s.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-    webpush.setVapidDetails(
-      VAPID_EMAIL.value(),
-      toUrlSafe(VAPID_PUBLIC_KEY.value()),
-      toUrlSafe(VAPID_PRIVATE_KEY.value())
-    );
-
-    const now      = Date.now();
-    const window   = 15 * 60 * 1000; // 15 min in ms
-    const todayStr = new Date().toISOString().slice(0, 10);
-
-    const subsSnap = await db.collection('pushSubscriptions').get();
-    if (subsSnap.empty) return;
-
-    // Group subscriptions by uid
-    const byUid = {};
-    for (const doc of subsSnap.docs) {
-      const s = doc.data();
-      if (!byUid[s.uid]) byUid[s.uid] = [];
-      byUid[s.uid].push({ id: doc.id, ...s });
-    }
-
-    for (const [uid, subs] of Object.entries(byUid)) {
-      const hwSnap = await db.collection('users').doc(uid).collection('homework')
-        .where('completed', '==', false)
-        .where('deadline', '>=', todayStr)
-        .get();
-
-      for (const hwDoc of hwSnap.docs) {
-        const item = hwDoc.data();
-        if (!item.deadline) continue;
-        if (item.remindedAt) continue;      // already notified
-        if (item.remindBefore === -1) continue; // user opted out
-
-        for (const sub of subs) {
-          const remindMins = (item.remindBefore != null ? item.remindBefore : sub.notifyBefore) ?? 60;
-
-          // Build deadline timestamp
-          const timeStr  = item.deadlineTime || '23:59';
-          const [hh, mm] = timeStr.split(':').map(Number);
-          const [y, mo, d] = item.deadline.split('-').map(Number);
-          const deadlineMs = new Date(y, mo - 1, d, hh, mm).getTime();
-          const remindAt   = deadlineMs - remindMins * 60 * 1000;
-
-          if (remindAt >= now - window && remindAt <= now) {
-            // Find class name for the body
-            let className = '';
-            try {
-              const clsDoc = await db.collection('users').doc(uid).collection('classes').doc(item.classId).get();
-              if (clsDoc.exists) className = clsDoc.data().name;
-            } catch (_) {}
-
-            const minsLeft = Math.round((deadlineMs - now) / 60000);
-            const body = minsLeft > 60
-              ? `Due in ${Math.round(minsLeft / 60)} hr${minsLeft > 90 ? 's' : ''}${className ? ' · ' + className : ''}`
-              : `Due in ${minsLeft} min${className ? ' · ' + className : ''}`;
-
-            const payload = JSON.stringify({ title: item.description, body, url: '/' });
-
-            try {
-              await webpush.sendNotification(
-                { endpoint: sub.endpoint, keys: sub.keys },
-                payload
-              );
-              await hwDoc.ref.update({ remindedAt: FieldValue.serverTimestamp() });
-            } catch (err) {
-              if (err.statusCode === 410) {
-                // Subscription expired — clean it up
-                await db.collection('pushSubscriptions').doc(sub.id).delete();
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // Delete completed homework items older than 30 days
-    try {
-      const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const oldSnap = await db.collectionGroup('homework')
-        .where('completed', '==', true)
-        .where('completedAt', '<=', cutoff)
-        .get();
-      await Promise.all(oldSnap.docs.map(d => d.ref.delete()));
-    } catch (_) {}
-  }
-);
+// Scheduled cleanup: delete completed homework items older than 30 days
+const { onSchedule } = require('firebase-functions/v2/scheduler');
+exports.cleanup = onSchedule('every 24 hours', async () => {
+  try {
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const snap = await db.collectionGroup('homework')
+      .where('completed', '==', true)
+      .where('completedAt', '<=', cutoff)
+      .get();
+    await Promise.all(snap.docs.map(d => d.ref.delete()));
+  } catch (_) {}
+});

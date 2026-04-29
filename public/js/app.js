@@ -796,7 +796,7 @@ function renderPrefsPage() {
   document.getElementById('pref-notify-before').value   = String(prefs.get('notifyBefore', 60));
   const notifOn = prefs.get('notificationsEnabled', false);
   document.getElementById('pref-notify-before-row').classList.toggle('hidden', !notifOn);
-  document.getElementById('pref-notify-test-row').classList.toggle('hidden', !notifOn);
+  // document.getElementById('pref-notify-test-row').classList.toggle('hidden', !notifOn);
 }
 
 function initAccentSwatches() {
@@ -897,11 +897,18 @@ async function handleAddHomework(e) {
   const reminderVal = document.getElementById('hw-reminder').value;
   const remindBefore = deadline && reminderVal !== '' ? parseInt(reminderVal) : null;
 
+  let deadlineMs = null;
+  if (deadline) {
+    const timeStr = deadlineTime || '23:59';
+    deadlineMs = new Date(`${deadline}T${timeStr}:00`).getTime();
+  }
+
   const payload = {
     classId, description,
     ...(notes        && { notes }),
     ...(deadline     && { deadline }),
     ...(deadlineTime && { deadlineTime }),
+    ...(deadlineMs  != null && { deadlineMs }),
     ...(remindBefore != null && { remindBefore })
   };
 
@@ -1279,8 +1286,8 @@ async function applyTemplate(btnId, templateName, tabs) {
     renderSettingsTabsList();
     populateSettingsTabSelect(firstTabId);
     renderSettingsClassList();
-    closeSettings();
-    toast(`${templateName} template applied`, 'success');
+    openSettings('classes');
+    toast(`${templateName} template applied — edit your topics below`, 'success');
   } catch (err) {
     toast(`Template failed: ${err.message}`, 'error');
   } finally {
@@ -1344,7 +1351,7 @@ function applyPersonalTemplate() {
 /* =============================================================================
    PUSH NOTIFICATIONS
    ============================================================================= */
-const VAPID_PUBLIC_KEY = 'BJJSDaGraTbTmvzXnZUIz7m-L_Zut6FK0hIX8b5MXeRmhv0rHtrvpknNdjcs-TRDyZR52h8yrM9UpOjdNJsNEYU';
+const VAPID_PUBLIC_KEY = 'BOrVSBk5blypBLGFYLnlfvkwSX9dxCtvSNISDJIDY89sy2q7mCudoX3WLA94yEp0m-L0ICpnxrk0guyYc2NLld0';
 
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -1557,20 +1564,21 @@ function wireEvents() {
       catch (_) {}
     }
   });
-  document.getElementById('pref-notify-test-btn').addEventListener('click', async e => {
-    const btn = e.currentTarget;
-    btn.disabled = true;
-    btn.textContent = 'Sending…';
-    try {
-      await apiFetch('POST', '/api/notifications/test', {});
-      toast('Test notification sent!', 'success');
-    } catch (err) {
-      toast(`Test failed: ${err.message}`, 'error');
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Send Test';
-    }
-  });
+  // TEST BUTTON — uncomment to re-enable
+  // document.getElementById('pref-notify-test-btn').addEventListener('click', async e => {
+  //   const btn = e.currentTarget;
+  //   btn.disabled = true;
+  //   btn.textContent = 'Sending…';
+  //   try {
+  //     await apiFetch('POST', '/api/notifications/test', {});
+  //     toast('Test notification sent!', 'success');
+  //   } catch (err) {
+  //     toast(`Test failed: ${err.message}`, 'error');
+  //   } finally {
+  //     btn.disabled = false;
+  //     btn.textContent = 'Send Test';
+  //   }
+  // });
 
   // Show/hide reminder group when deadline is set/cleared
   document.getElementById('hw-deadline').addEventListener('change', e => {

@@ -5,7 +5,7 @@ self.addEventListener('push', event => {
     self.registration.showNotification(title, {
       body,
       icon:  '/icons/icon-192.png',
-      badge: '/icons/favicon-32.png',
+      badge: '/icons/icon-192.png',
       data:  { url: url || '/' }
     })
   );

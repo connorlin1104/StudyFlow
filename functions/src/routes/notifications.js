@@ -52,6 +52,7 @@ router.delete('/subscribe', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+/* TEST ROUTE — uncomment to re-enable Send Test button
 router.post('/test', async (req, res) => {
   try {
     const webpush = require('web-push');
@@ -60,16 +61,20 @@ router.post('/test', async (req, res) => {
     }
     const toUrlSafe = s => s.trim().replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
     webpush.setVapidDetails(
-      process.env.VAPID_EMAIL,
+      (process.env.VAPID_EMAIL ?? '').trim(),
       toUrlSafe(process.env.VAPID_PUBLIC_KEY),
       toUrlSafe(process.env.VAPID_PRIVATE_KEY)
     );
 
     const rawPub  = process.env.VAPID_PUBLIC_KEY  ?? '';
     const rawPriv = process.env.VAPID_PRIVATE_KEY ?? '';
+    const processedPub = toUrlSafe(rawPub);
+    const EXPECTED_PUB = 'BOrVSBk5blypBLGFYLnlfvkwSX9dxCtvSNISDJIDY89sy2q7mCudoX3WLA94yEp0m-L0ICpnxrk0guyYc2NLld0';
     const debug = {
       pubLen: rawPub.length, pubStart: rawPub.slice(0,6), pubEnd: rawPub.slice(-6),
+      processedPubLen: processedPub.length, processedPubMatch: processedPub === EXPECTED_PUB,
       privLen: rawPriv.length, privStart: rawPriv.slice(0,6), privEnd: rawPriv.slice(-6),
+      emailLen: (process.env.VAPID_EMAIL ?? '').length, emailStart: (process.env.VAPID_EMAIL ?? '').slice(0, 20),
     };
 
     const subsSnap = await col().where('uid', '==', req.uid).get();
@@ -87,7 +92,7 @@ router.post('/test', async (req, res) => {
         ]);
         sent++;
       } catch (e) {
-        if (e.statusCode === 410 || e.statusCode === 403) await doc.ref.delete();
+        if (e.statusCode === 410) await doc.ref.delete();
         lastErr = e;
         debug.failedEp = sub.endpoint.slice(-40);
         debug.statusCode = e.statusCode;
@@ -97,5 +102,6 @@ router.post('/test', async (req, res) => {
     res.json({ ok: true, debug });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+*/
 
 module.exports = router;
