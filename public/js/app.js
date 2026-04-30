@@ -865,6 +865,8 @@ function startEditClass(cls) {
    ============================================================================= */
 async function handleAddHomework(e) {
   e.preventDefault();
+  const submitBtn = document.getElementById('hw-form-submit');
+  submitBtn.disabled = true;
   const editId      = document.getElementById('hw-edit-id').value;
   const classId     = document.getElementById('hw-class').value;
   const description = document.getElementById('hw-desc').value.trim();
@@ -931,11 +933,17 @@ async function handleAddHomework(e) {
       closeHwModal();
       toast(`Added "${description}"`, 'success');
     }
-  } catch (err) { toast(`Error: ${err.message}`, 'error'); }
+  } catch (err) {
+    toast(`Error: ${err.message}`, 'error');
+  } finally {
+    submitBtn.disabled = false;
+  }
 }
 
 async function handleClassFormSubmit(e) {
   e.preventDefault();
+  const submitBtn = document.getElementById('class-form-submit');
+  submitBtn.disabled = true;
   const id      = document.getElementById('edit-class-id').value;
   const tabId   = document.getElementById('settings-tab-select').value || state.activeTabId;
   const teacher = document.getElementById('class-teacher').value.trim();
@@ -974,13 +982,19 @@ async function handleClassFormSubmit(e) {
     renderSettingsClassList();
     renderSchedule();
     renderSummary();
-  } catch (err) { toast(`Error: ${err.message}`, 'error'); }
+  } catch (err) {
+    toast(`Error: ${err.message}`, 'error');
+  } finally {
+    submitBtn.disabled = false;
+  }
 }
 
 async function handleAddTab(e) {
   e.preventDefault();
   const name = document.getElementById('tab-name').value.trim();
   if (!name) return;
+  const submitBtn = document.getElementById('tab-form-submit');
+  submitBtn.disabled = true;
   try {
     const tab = await api.tabs.create({ name });
     state.tabs.push(tab);
@@ -993,8 +1007,10 @@ async function handleAddTab(e) {
     closeSettings();
     renderSchedule();
     toast(`Added space "${name}"`, 'success');
-  } catch (err) { 
-    toast(`Error: ${err.message}`, 'error'); 
+  } catch (err) {
+    toast(`Error: ${err.message}`, 'error');
+  } finally {
+    submitBtn.disabled = false;
   }
 }
 
