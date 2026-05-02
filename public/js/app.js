@@ -1570,7 +1570,16 @@ function wireEvents() {
     if (initChev) initChev.textContent = panel.classList.contains('summary-panel--collapsed') ? '›' : '‹';
 
     // ── Mobile drag (vertical, 3-snap bottom sheet) ────────────────────────────
-    const M_COLLAPSED = 36;
+    function getSafeAreaBottom() {
+      const el = document.createElement('div');
+      el.style.cssText = 'position:fixed;bottom:0;height:env(safe-area-inset-bottom,0px);visibility:hidden;pointer-events:none';
+      document.body.appendChild(el);
+      const h = el.offsetHeight;
+      el.remove();
+      return h;
+    }
+    const M_SAFE_BOTTOM = navigator.standalone ? getSafeAreaBottom() : 0;
+    const M_COLLAPSED = 36 + M_SAFE_BOTTOM;
     const M_NORMAL    = 240;
     const M_EXPANDED  = () => Math.round(window.innerHeight * 0.86);
 

@@ -1671,6 +1671,21 @@ kbd {
   }
   .summary-drag-handle:active .summary-drag-pill { height: 4px; width: 48px; }
 }
+/* iOS PWA: 100dvh excludes the home indicator zone — extend body to cover it */
+html.pwa-mode body {
+  height: calc(100dvh + env(safe-area-inset-bottom, 0px));
+}
+@media (max-width: 820px) {
+  /* Collapsed handle stays fully visible above home indicator */
+  html.pwa-mode .app-body:has(.summary-panel--collapsed) {
+    grid-template-rows: 1fr calc(36px + env(safe-area-inset-bottom, 0px));
+  }
+  /* Scrollable content doesn't go behind home indicator */
+  html.pwa-mode .summary-panel {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
 @media (max-width: 600px) {
   .site-header { padding: 10px 12px; padding-top: max(10px, env(safe-area-inset-top, 10px)); }
   .logo { font-size: 1.1rem; }
