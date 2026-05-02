@@ -35,7 +35,6 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 /* =============================================================================
@@ -1020,6 +1019,7 @@ kbd {
   background: var(--surface);
   border-top: 1px solid var(--border);
   padding: 5px 20px;
+  padding-bottom: calc(5px + env(safe-area-inset-bottom, 0px));
   font-size: .7rem;
   color: var(--text-muted);
   text-align: center;
@@ -1646,6 +1646,8 @@ kbd {
   /* Row height driven by JS inline style; these are CSS fallbacks only */
   .app-body { grid-template-columns: 1fr; grid-template-rows: 1fr 240px; }
   .app-body:has(.summary-panel--collapsed) { grid-template-columns: 1fr; grid-template-rows: 1fr 36px; }
+
+  .site-footer { display: none; }
 
   .summary-panel { flex-direction: column; border-left: none; border-top: 1px solid var(--border); }
 

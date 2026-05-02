@@ -52,7 +52,6 @@ router.delete('/subscribe', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-/* TEST ROUTE — uncomment to re-enable Send Test button
 router.post('/test', async (req, res) => {
   try {
     const webpush = require('web-push');
@@ -102,6 +101,5 @@ router.post('/test', async (req, res) => {
     res.json({ ok: true, debug });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-*/
 
 module.exports = router;

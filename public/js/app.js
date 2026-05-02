@@ -796,7 +796,7 @@ function renderPrefsPage() {
   document.getElementById('pref-notify-before').value   = String(prefs.get('notifyBefore', 60));
   const notifOn = prefs.get('notificationsEnabled', false);
   document.getElementById('pref-notify-before-row').classList.toggle('hidden', !notifOn);
-  // document.getElementById('pref-notify-test-row').classList.toggle('hidden', !notifOn);
+  document.getElementById('pref-notify-test-row').classList.toggle('hidden', !notifOn);
 }
 
 function initAccentSwatches() {
@@ -1660,21 +1660,22 @@ function wireEvents() {
       catch (_) {}
     }
   });
-  // TEST BUTTON — uncomment to re-enable
-  // document.getElementById('pref-notify-test-btn').addEventListener('click', async e => {
-  //   const btn = e.currentTarget;
-  //   btn.disabled = true;
-  //   btn.textContent = 'Sending…';
-  //   try {
-  //     await apiFetch('POST', '/api/notifications/test', {});
-  //     toast('Test notification sent!', 'success');
-  //   } catch (err) {
-  //     toast(`Test failed: ${err.message}`, 'error');
-  //   } finally {
-  //     btn.disabled = false;
-  //     btn.textContent = 'Send Test';
-  //   }
-  // });
+  document.getElementById('pref-notify-test-btn').addEventListener('click', async e => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+    try {
+      const result = await apiFetch('POST', '/api/notifications/test', {});
+      toast('Test notification sent!', 'success');
+      if (result?.debug) console.log('[notif test debug]', result.debug);
+    } catch (err) {
+      toast(`Test failed: ${err.message}`, 'error');
+      console.error('[notif test error]', err);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Send Test';
+    }
+  });
 
   // Show/hide reminder group when deadline is set/cleared
   document.getElementById('hw-deadline').addEventListener('change', e => {
