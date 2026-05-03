@@ -1669,11 +1669,8 @@ function wireEvents() {
   document.getElementById('pref-notify-before').addEventListener('change', async e => {
     const val = parseInt(e.target.value);
     prefs.set('notifyBefore', val);
-    const endpoint = prefs.get('pushEndpoint', null);
-    if (endpoint) {
-      try { await apiFetch('PUT', '/api/notifications/subscribe', { endpoint, notifyBefore: val }); }
-      catch (_) {}
-    }
+    try { await apiFetch('PUT', '/api/notifications/prefs', { notifyBefore: val }); }
+    catch (_) {}
   });
   // TEST BUTTON — uncomment to re-enable
   // document.getElementById('pref-notify-test-btn').addEventListener('click', async e => {
@@ -1853,6 +1850,15 @@ async function init() {
     renderTabBar();
     renderSchedule();
     renderSummary();
+
+    // Sync notifyBefore from server so all devices share one preference
+    apiFetch('GET', '/api/notifications/prefs').then(r => {
+      if (r?.notifyBefore != null && r.notifyBefore !== prefs.get('notifyBefore', 60)) {
+        prefs.set('notifyBefore', r.notifyBefore);
+        const el = document.getElementById('pref-notify-before');
+        if (el) el.value = String(r.notifyBefore);
+      }
+    }).catch(() => {});
   } catch (err) {
     toast(`Failed to load data: ${err.message}`, 'error');
     console.error(err);

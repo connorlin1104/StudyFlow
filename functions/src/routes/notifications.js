@@ -3,7 +3,8 @@ const express    = require('express');
 const router     = express.Router();
 const { db, FieldValue } = require('../firebaseAdmin');
 
-const col = () => db.collection('pushSubscriptions');
+const col      = () => db.collection('pushSubscriptions');
+const prefsCol = () => db.collection('userPrefs');
 
 router.post('/subscribe', async (req, res) => {
   const { subscription, notifyBefore } = req.body;
@@ -40,6 +41,31 @@ router.put('/subscribe', async (req, res) => {
                             .limit(1).get();
     if (snap.empty) return res.status(404).json({ error: 'subscription not found' });
     await snap.docs[0].ref.update({ notifyBefore: notifyBefore ?? 60 });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /prefs — return the user's shared notifyBefore preference
+router.get('/prefs', async (req, res) => {
+  try {
+    const doc = await prefsCol().doc(req.uid).get();
+    if (doc.exists && doc.data().notifyBefore != null) {
+      return res.json({ notifyBefore: doc.data().notifyBefore });
+    }
+    // Migration fallback: read from first subscription
+    const snap = await col().where('uid', '==', req.uid).limit(1).get();
+    res.json({ notifyBefore: snap.empty ? 60 : (snap.docs[0].data().notifyBefore ?? 60) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /prefs — save preference and propagate to all subscriptions
+router.put('/prefs', async (req, res) => {
+  const { notifyBefore } = req.body;
+  if (notifyBefore == null) return res.status(400).json({ error: 'notifyBefore required' });
+  try {
+    await prefsCol().doc(req.uid).set({ notifyBefore }, { merge: true });
+    const snap = await col().where('uid', '==', req.uid).get();
+    await Promise.all(snap.docs.map(d => d.ref.update({ notifyBefore })));
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

@@ -32,8 +32,13 @@ async function scheduleNotification(uid, hwId, item) {
 
   let remindMins = item.remindBefore;
   if (remindMins == null) {
-    const snap = await db.collection('pushSubscriptions').where('uid', '==', uid).limit(1).get();
-    remindMins = snap.empty ? 60 : (snap.docs[0].data().notifyBefore ?? 60);
+    const prefDoc = await db.collection('userPrefs').doc(uid).get();
+    if (prefDoc.exists && prefDoc.data().notifyBefore != null) {
+      remindMins = prefDoc.data().notifyBefore;
+    } else {
+      const snap = await db.collection('pushSubscriptions').where('uid', '==', uid).limit(1).get();
+      remindMins = snap.empty ? 60 : (snap.docs[0].data().notifyBefore ?? 60);
+    }
   }
 
   const remindAt = computeRemindAt(item.deadline, item.deadlineTime, remindMins, item.deadlineMs);
