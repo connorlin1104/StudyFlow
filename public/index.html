@@ -478,7 +478,7 @@
           <!-- PAGE: Templates -->
           <div id="settings-page-templates" class="settings-page hidden">
             <div class="settings-section">
-              <p class="settings-empty" style="margin-bottom:12px;">Apply a Template — your existing schedule is kept.</p>
+              <p class="settings-empty" style="margin-bottom:12px;">Use a Template — your existing schedule is kept.</p>
               <div class="help-list">
                 <button class="help-item" id="student-template-btn">
                   <span class="help-item-icon">&#x1F393;</span>
@@ -602,36 +602,47 @@
           <h3 class="release-version">v1.10 &mdash; May 2026</h3>
           <ul>
             <li>Mobile summary panel is now a <strong>draggable bottom sheet</strong> &mdash; drag the pill handle to snap between collapsed, normal, and full-screen</li>
-            <li>Desktop summary panel shows the same <strong>accent-colored pill</strong> drag indicator instead of a text arrow</li>
-            <li>PWA status bar no longer overlaps the header on iPhone &mdash; fixed with iOS safe-area insets</li>
-            <li>Assignments with no time set now <strong>notify at midnight</strong> (12:00 AM) of the due date, so reminders fire the evening before</li>
-            <li>iOS Safari now shows an &ldquo;Add to Home Screen&rdquo; prompt when notifications aren&rsquo;t available in the browser</li>
+            <li>Desktop summary panel now shows an <strong>accent-colored pill</strong> drag indicator in place of the text arrow</li>
+            <li>PWA header no longer hidden behind the iOS status bar &mdash; fixed with safe-area insets and <code>viewport-fit=cover</code></li>
+            <li>Deadlines with no time set now <strong>schedule reminders at midnight</strong> so you get notified the evening before, not at end-of-day</li>
+            <li>iOS Safari shows an &ldquo;Add to Home Screen&rdquo; guide when push notifications aren&rsquo;t available in the browser</li>
+            <li>Notification icon now resolves correctly on Apple devices</li>
+            <li>Add and submit buttons disable while saving to prevent duplicate items from being created</li>
           </ul>
         </div>
         <div class="release-block">
           <h3 class="release-version">v1.9 &mdash; April 2026</h3>
           <ul>
             <li>Applying a template now opens <strong>Settings &rarr; Topics</strong> automatically so you can rename or recolor your new topics right away</li>
+            <li>Push notifications are now <strong>reliable across all devices</strong> &mdash; fixed VAPID key handling, push format, and stale subscription cleanup</li>
+            <li>Completed assignments <strong>automatically delete after 30 days</strong> to keep your schedule clean without manual cleanup</li>
+            <li>Removed the &ldquo;Ask a Question&rdquo; contact form from the Help Center</li>
           </ul>
         </div>
         <div class="release-block">
           <h3 class="release-version">v1.8 &mdash; April 2026</h3>
           <ul>
+            <li><strong>Push notifications</strong> &mdash; get reminded before assignments are due; enable in Settings and set a default lead time</li>
+            <li>Per-assignment reminder override &mdash; choose a different lead time for any individual item when adding or editing it</li>
+            <li>Drag the left edge of the <strong>summary panel</strong> to resize it, or click the pull tab to collapse and restore it</li>
+            <li>Summary panel sorts items by <strong>time</strong> within the same day, not just date</li>
+            <li>College, Work, and Personal <strong>schedule templates</strong> added alongside the existing Student template</li>
+            <li>Applying a template now <strong>adds</strong> spaces and topics to your existing schedule instead of replacing everything</li>
             <li>Renamed &ldquo;Tabs&rdquo; to <strong>Spaces</strong> and &ldquo;Groups&rdquo; to <strong>Topics</strong> throughout the app</li>
-            <li>Welcome empty state &mdash; new accounts see a &ldquo;Browse Templates&rdquo; and &ldquo;Set Up Manually&rdquo; prompt instead of a bare settings link</li>
-            <li>Help Center &mdash; FAQ accordion with 9 questions and an &ldquo;Ask a Question&rdquo; contact form saved to your account</li>
-            <li>Custom confirm dialogs &mdash; delete and replace prompts now match the app&rsquo;s theme instead of using the browser default</li>
-            <li>No-due-date items now appear at the <em>top</em> of each topic list instead of the bottom</li>
-            <li>Chrome fixes: date calendar picker now visible, buttons no longer render oversized, drag handle visible in all themes</li>
+            <li>Help Center added &mdash; FAQ accordion accessible from the gear menu</li>
+            <li>New accounts see a &ldquo;Browse Templates&rdquo; prompt on first load instead of an empty screen</li>
+            <li>Custom confirm dialogs &mdash; delete and replace prompts now match the app&rsquo;s theme</li>
+            <li>Items without a due date now sort to the <em>top</em> of each topic list</li>
+            <li>Chrome fixes: date picker, button sizing, and drag handle now render correctly</li>
           </ul>
         </div>
         <div class="release-block">
           <h3 class="release-version">v1.7 &mdash; April 2026</h3>
           <ul>
             <li>Email &amp; password sign-in added alongside Google sign-in</li>
-            <li>Email verification required after sign-up with email/password</li>
-            <li>Forgot password &mdash; dedicated panel with resend support</li>
-            <li>Renamed &ldquo;Homework Scheduler&rdquo; to &ldquo;Scheduler&rdquo; throughout the app for broader use</li>
+            <li>Email verification required for new email/password accounts</li>
+            <li>Forgot password &mdash; dedicated reset panel with resend support</li>
+            <li>Renamed the app from &ldquo;Homework Scheduler&rdquo; to &ldquo;Scheduler&rdquo; to better reflect general use</li>
           </ul>
         </div>
         <div class="release-block">
