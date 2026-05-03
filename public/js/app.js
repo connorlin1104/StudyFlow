@@ -214,7 +214,13 @@ function parseDeadline(dateStr, timeStr) {
   if (timeStr) {
     label += ' at ' + due.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
   }
-  return { label: `Due ${label}`, diff };
+  // Overdue if past the deadline date, or same day but the time has already passed
+  const overdue = diff < 0 || (diff === 0 && due < new Date());
+  const cssClass = overdue          ? 'deadline--overdue'
+                 : diff === 0       ? 'deadline--today'
+                 : diff <= 3        ? 'deadline--soon'
+                 : 'deadline--ok';
+  return { label: `Due ${label}`, diff, cssClass };
 }
 
 function deadlineCssClass(diff) {
@@ -401,7 +407,7 @@ function buildHwItem(hw) {
 
   const dl     = parseDeadline(hw.deadline, hw.deadlineTime);
   const dlHtml = dl
-    ? `<span class="deadline-badge ${deadlineCssClass(dl.diff)}">${esc(dl.label)}</span>`
+    ? `<span class="deadline-badge ${dl.cssClass}">${esc(dl.label)}</span>`
     : '';
   const notesHtml = hw.notes ? `<span class="hw-notes">${esc(hw.notes)}</span>` : '';
 
@@ -464,7 +470,7 @@ function renderSummary() {
     const metaParts = [cls.name];
     if (tab && tab.id !== 'classes') metaParts.push(tab.name);
     const badgeHtml = dl
-      ? `<span class="deadline-badge ${deadlineCssClass(dl.diff)}">${esc(dl.label)}</span>`
+      ? `<span class="deadline-badge ${dl.cssClass}">${esc(dl.label)}</span>`
       : `<span class="deadline-badge deadline--ok">No date</span>`;
     item.innerHTML = `
       <div class="summary-color-bar"></div>
@@ -796,7 +802,7 @@ function renderPrefsPage() {
   document.getElementById('pref-notify-before').value   = String(prefs.get('notifyBefore', 60));
   const notifOn = prefs.get('notificationsEnabled', false);
   document.getElementById('pref-notify-before-row').classList.toggle('hidden', !notifOn);
-  document.getElementById('pref-notify-test-row').classList.toggle('hidden', !notifOn);
+  // document.getElementById('pref-notify-test-row').classList.toggle('hidden', !notifOn);
 }
 
 function initAccentSwatches() {
@@ -1669,22 +1675,23 @@ function wireEvents() {
       catch (_) {}
     }
   });
-  document.getElementById('pref-notify-test-btn').addEventListener('click', async e => {
-    const btn = e.currentTarget;
-    btn.disabled = true;
-    btn.textContent = 'Sending…';
-    try {
-      const result = await apiFetch('POST', '/api/notifications/test', {});
-      toast('Test notification sent!', 'success');
-      if (result?.debug) console.log('[notif test debug]', result.debug);
-    } catch (err) {
-      toast(`Test failed: ${err.message}`, 'error');
-      console.error('[notif test error]', err);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Send Test';
-    }
-  });
+  // TEST BUTTON — uncomment to re-enable
+  // document.getElementById('pref-notify-test-btn').addEventListener('click', async e => {
+  //   const btn = e.currentTarget;
+  //   btn.disabled = true;
+  //   btn.textContent = 'Sending…';
+  //   try {
+  //     const result = await apiFetch('POST', '/api/notifications/test', {});
+  //     toast('Test notification sent!', 'success');
+  //     if (result?.debug) console.log('[notif test debug]', result.debug);
+  //   } catch (err) {
+  //     toast(`Test failed: ${err.message}`, 'error');
+  //     console.error('[notif test error]', err);
+  //   } finally {
+  //     btn.disabled = false;
+  //     btn.textContent = 'Send Test';
+  //   }
+  // });
 
   // Show/hide reminder group when deadline is set/cleared
   document.getElementById('hw-deadline').addEventListener('change', e => {
