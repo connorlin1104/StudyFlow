@@ -579,7 +579,7 @@ function renderSettingsClassList() {
   const tab     = state.tabs.find(t => t.id === tabId);
   const plural  = tab ? tab.name : label + 's';
 
-  document.getElementById('add-group-btn').textContent = `+ Add ${article(label)} ${label}`;
+  document.getElementById('add-group-btn').textContent = '+ Add';
 
   if (classes.length === 0) {
     list.innerHTML = `<p class="settings-empty">No ${plural.toLowerCase()} in this space yet</p>`;
