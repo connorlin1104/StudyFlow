@@ -388,6 +388,37 @@ body {
 .summary-btn--done { color: #16a34a; border-color: #22c55e; }
 .summary-btn--done:hover { background: #f0fdf4; }
 
+/* No Due Date collapsible section in summary panel */
+.summary-nodate-section { border-top: 1px solid var(--border); }
+.summary-nodate-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 14px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: .72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  font-family: inherit;
+  transition: background var(--t);
+}
+.summary-nodate-toggle:hover { background: var(--bg); }
+.summary-nodate-ct {
+  background: var(--border);
+  color: var(--text-muted);
+  padding: 1px 6px;
+  border-radius: 99px;
+  font-size: .68rem;
+  font-weight: 700;
+}
+.summary-nodate-chevron { margin-left: auto; font-size: .75rem; }
+.summary-nodate-section--collapsed .summary-nodate-items { display: none; }
+
 .summary-empty {
   padding: 32px 16px;
   text-align: center;
@@ -496,6 +527,7 @@ body {
   white-space: nowrap;
 }
 .hw-item--collapsible .hw-notes { display: none; }
+.hw-item--collapsible .hw-notes--always { display: block; }
 
 .hw-expand-hint {
   font-size: .7rem;

@@ -406,16 +406,20 @@ function buildClassRow(cls, pendingHw) {
 
 function buildHwItem(hw) {
   const item = document.createElement('div');
-  const isExpandable = !!(hw.notes || hw.description.length > 50);
-  item.className = `hw-item${isExpandable ? ' hw-item--collapsible' : ''}`;
+  const hasMultiLineNotes = hw.notes && hw.notes.includes('\n');
+  const isExpandable = !!(hasMultiLineNotes || hw.description.length > 50);
+  const startExpanded = isExpandable && new Set(prefs.get('expandedHw', [])).has(hw.id);
+  item.className = `hw-item${isExpandable ? ' hw-item--collapsible' : ''}${startExpanded ? ' hw-item--expanded' : ''}`;
   item.dataset.hwId = hw.id;
 
   const dl     = parseDeadline(hw.deadline, hw.deadlineTime);
   const dlHtml = dl
     ? `<span class="deadline-badge ${dl.cssClass}">${esc(dl.label)}</span>`
     : '';
-  const notesHtml  = hw.notes ? `<span class="hw-notes">${esc(hw.notes)}</span>` : '';
-  const hintHtml   = isExpandable ? `<span class="hw-expand-hint" aria-hidden="true">▾ more</span>` : '';
+  const notesHtml = hw.notes
+    ? `<span class="hw-notes${hasMultiLineNotes ? '' : ' hw-notes--always'}">${esc(hw.notes)}</span>`
+    : '';
+  const hintHtml = isExpandable ? `<span class="hw-expand-hint" aria-hidden="true">${startExpanded ? '▴ less' : '▾ more'}</span>` : '';
 
   item.innerHTML = `
     <label class="hw-check-label" title="Mark complete">
@@ -466,19 +470,19 @@ function renderSummary() {
   empty.classList.add('hidden');
   list.innerHTML = '';
 
-  pending.forEach(hw => {
+  function buildSummaryItem(hw, showBadge) {
     const cls = state.classes.find(c => c.id === hw.classId);
-    if (!cls) return;
-    const tab    = state.tabs.find(t => t.id === cls.tabId);
-    const dl     = parseDeadline(hw.deadline, hw.deadlineTime);
-    const item   = document.createElement('div');
+    if (!cls) return null;
+    const tab  = state.tabs.find(t => t.id === cls.tabId);
+    const dl   = parseDeadline(hw.deadline, hw.deadlineTime);
+    const item = document.createElement('div');
     item.className = 'summary-item';
     item.style.setProperty('--color', cls.color || '#94a3b8');
     const metaParts = [cls.name];
     if (tab && tab.id !== 'classes') metaParts.push(tab.name);
-    const badgeHtml = dl
+    const badgeHtml = showBadge && dl
       ? `<span class="deadline-badge ${dl.cssClass}">${esc(dl.label)}</span>`
-      : `<span class="deadline-badge deadline--ok">No date</span>`;
+      : '';
     item.innerHTML = `
       <div class="summary-color-bar"></div>
       <div class="summary-body">
@@ -493,8 +497,36 @@ function renderSummary() {
         </div>
       </div>
     `;
-    list.appendChild(item);
+    return item;
+  }
+
+  const withDate = pending.filter(h => h.deadline);
+  const noDate   = pending.filter(h => !h.deadline);
+
+  withDate.forEach(hw => {
+    const item = buildSummaryItem(hw, true);
+    if (item) list.appendChild(item);
   });
+
+  if (noDate.length > 0) {
+    const collapsed = prefs.get('summaryNodateCollapsed', false);
+    const section = document.createElement('div');
+    section.className = `summary-nodate-section${collapsed ? ' summary-nodate-section--collapsed' : ''}`;
+    section.innerHTML = `
+      <button class="summary-nodate-toggle">
+        <span class="summary-nodate-label">No Due Date</span>
+        <span class="summary-nodate-ct">${noDate.length}</span>
+        <span class="summary-nodate-chevron">${collapsed ? '▾' : '▴'}</span>
+      </button>
+      <div class="summary-nodate-items"></div>
+    `;
+    const itemsEl = section.querySelector('.summary-nodate-items');
+    noDate.forEach(hw => {
+      const item = buildSummaryItem(hw, false);
+      if (item) itemsEl.appendChild(item);
+    });
+    list.appendChild(section);
+  }
 }
 
 /* =============================================================================
@@ -1802,11 +1834,23 @@ function wireEvents() {
       const expanded = hwItem.classList.toggle('hw-item--expanded');
       const hint = hwItem.querySelector('.hw-expand-hint');
       if (hint) hint.textContent = expanded ? '▴ less' : '▾ more';
+      const ids = new Set(prefs.get('expandedHw', []));
+      if (expanded) ids.add(hwItem.dataset.hwId);
+      else ids.delete(hwItem.dataset.hwId);
+      prefs.set('expandedHw', [...ids]);
     }
   });
 
-  // Summary panel — edit and complete buttons
+  // Summary panel — edit, complete, and no-date section toggle
   document.getElementById('summary-list').addEventListener('click', e => {
+    const toggle = e.target.closest('.summary-nodate-toggle');
+    if (toggle) {
+      const section = toggle.closest('.summary-nodate-section');
+      const collapsed = section.classList.toggle('summary-nodate-section--collapsed');
+      toggle.querySelector('.summary-nodate-chevron').textContent = collapsed ? '▾' : '▴';
+      prefs.set('summaryNodateCollapsed', collapsed);
+      return;
+    }
     const editBtn = e.target.closest('.summary-btn--edit');
     const doneBtn = e.target.closest('.summary-btn--done');
     if (editBtn) openHwEditModal(editBtn.dataset.hwId);
