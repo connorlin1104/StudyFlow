@@ -393,14 +393,15 @@ body {
 .summary-nodate-toggle {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
-  padding: 7px 14px;
+  padding: 14px 16px 12px;
   border: none;
+  border-bottom: 1px solid var(--border);
   background: transparent;
   cursor: pointer;
   color: var(--text-muted);
-  font-size: .72rem;
+  font-size: .75rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .06em;
@@ -408,15 +409,17 @@ body {
   transition: background var(--t);
 }
 .summary-nodate-toggle:hover { background: var(--bg); }
+.summary-nodate-label { flex: 1; text-align: left; }
 .summary-nodate-ct {
-  background: var(--border);
-  color: var(--text-muted);
-  padding: 1px 6px;
+  background: var(--primary);
+  color: #fff;
+  padding: 1px 7px;
   border-radius: 99px;
-  font-size: .68rem;
+  font-size: .7rem;
   font-weight: 700;
 }
-.summary-nodate-chevron { margin-left: auto; font-size: .75rem; }
+.summary-nodate-chevron { font-size: .75rem; }
+.summary-nodate-section--collapsed .summary-nodate-toggle { border-bottom: none; }
 .summary-nodate-section--collapsed .summary-nodate-items { display: none; }
 
 .summary-empty {
