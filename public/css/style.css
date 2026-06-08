@@ -522,8 +522,8 @@ body {
 
 /* Collapsible hw-items */
 .hw-item--collapsible { cursor: pointer; align-items: flex-start; }
-.hw-item--collapsible .hw-check-label { padding-top: 2px; }
-.hw-item--collapsible .hw-right { padding-top: 1px; }
+.hw-item--collapsible .hw-check-label { align-self: center; }
+.hw-item--collapsible .hw-right { align-self: center; }
 .hw-item--collapsible .hw-desc {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -793,7 +793,7 @@ input:focus, select:focus, textarea:focus {
 textarea { min-height: 68px; resize: vertical; }
 
 .deadline-row { display: flex; gap: 8px; align-items: center; }
-#hw-deadline { flex: 1; min-width: 0; padding: 11px 12px; font-size: 1rem; cursor: pointer; box-sizing: border-box; height: 47px; }
+#hw-deadline { flex: 1; min-width: 0; padding: 11px 12px; font-size: 1rem; cursor: pointer; box-sizing: border-box; height: 47px; -webkit-appearance: none; appearance: none; }
 #hw-deadline::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 1; }
 .time-picker { display: flex; gap: 2px; }
 .time-picker input,
@@ -1780,6 +1780,7 @@ html.pwa-mode body {
   .form-row { flex-direction: column; }
   .hw-right { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
   .hw-item .btn-icon-sm { opacity: 1; }
+  .hw-item .hw-attach-badge { opacity: .85; }
   .modal-box--wide { max-width: 100%; }
   .settings-layout { flex-direction: column; }
   .settings-sidebar { width: 100%; flex-direction: row; border-right: none; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
@@ -1990,14 +1991,16 @@ html.pwa-mode body {
 [data-theme="dark"] .form-attach-thumb--loading { background: #1e293b; }
 [data-theme="dark"] .hw-attach-img:hover { box-shadow: 0 4px 12px rgba(0,0,0,.4); }
 
-/* Attachment badge on hw-item (always visible) */
+/* Attachment badge on hw-item — hidden until hover, like edit/delete buttons */
 .hw-attach-badge {
   display: inline-flex;
   align-items: center;
   gap: 2px;
   color: var(--text-muted);
   font-size: .72rem;
-  opacity: .75;
   flex-shrink: 0;
+  opacity: 0;
+  transition: opacity var(--t);
 }
 .hw-attach-badge svg { flex-shrink: 0; }
+.hw-item:hover .hw-attach-badge { opacity: .85; }

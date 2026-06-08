@@ -1,7 +1,7 @@
 'use strict';
 const express            = require('express');
 const router             = express.Router();
-const { db, FieldValue } = require('../firebaseAdmin');
+const { db, FieldValue, bucket } = require('../firebaseAdmin');
 const { scheduleNotification, cancelTask } = require('../taskHelper');
 
 const col = uid      => db.collection('users').doc(uid).collection('homework');
@@ -56,6 +56,15 @@ router.put('/:id', async (req, res) => {
     if (completed    !== undefined) {
       update.completed   = completed;
       update.completedAt = completed ? FieldValue.serverTimestamp() : null;
+      if (completed && !existing.completed) {
+        const files = Array.isArray(existing.attachments) ? existing.attachments : [];
+        if (files.length) {
+          await Promise.allSettled(
+            files.filter(a => a.storagePath).map(a => bucket.file(a.storagePath).delete())
+          );
+          update.attachments = [];
+        }
+      }
     }
     if (remindBefore !== undefined) update.remindBefore = remindBefore;
     if (deadlineMs   !== undefined) update.deadlineMs   = deadlineMs;
@@ -85,6 +94,13 @@ router.delete('/:id', async (req, res) => {
   try {
     const existing = (await doc(req.uid, req.params.id).get()).data() || {};
     await cancelTask(existing.notifyTaskName);
+    if (Array.isArray(existing.attachments) && existing.attachments.length) {
+      await Promise.allSettled(
+        existing.attachments
+          .filter(a => a.storagePath)
+          .map(a => bucket.file(a.storagePath).delete())
+      );
+    }
     await doc(req.uid, req.params.id).delete();
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }

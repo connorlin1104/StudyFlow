@@ -1290,7 +1290,7 @@ async function handleDeleteHw(hwId) {
     renderSummary();
     toast(`Deleted "${hw.description}"`, 'info');
 
-    const { id: _id, createdAt: _ca, completed: _co, ...restoreFields } = hw;
+    const { id: _id, createdAt: _ca, completed: _co, attachments: _att, ...restoreFields } = hw;
     const action = {
       restoredId: null,
       async undo() {

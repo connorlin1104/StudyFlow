@@ -6,5 +6,6 @@ if (!admin.apps.length) admin.initializeApp();
 
 module.exports = {
   db:         admin.firestore(),
-  FieldValue: admin.firestore.FieldValue
+  FieldValue: admin.firestore.FieldValue,
+  bucket:     admin.storage().bucket()
 };
