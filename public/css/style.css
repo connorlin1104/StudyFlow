@@ -1779,8 +1779,9 @@ html.pwa-mode body {
   .tab-content { padding: 12px 12px 40px; }
   .form-row { flex-direction: column; }
   .hw-right { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+  .hw-right .deadline-badge { order: -1; width: 100%; text-align: right; }
   .hw-item .btn-icon-sm { opacity: 1; }
-  .hw-item .hw-attach-badge { opacity: .85; }
+  .hw-item .hw-attach-badge { opacity: .85; width: 24px; height: 24px; justify-content: center; }
   .modal-box--wide { max-width: 100%; }
   .settings-layout { flex-direction: column; }
   .settings-sidebar { width: 100%; flex-direction: row; border-right: none; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
@@ -1986,6 +1987,17 @@ html.pwa-mode body {
   padding: 0;
 }
 .lightbox-close:hover { opacity: 1; }
+
+@media (max-width: 600px) {
+  .lightbox { padding: 64px 20px 48px; }
+  .lightbox-img { max-height: 68vh; }
+  .lightbox-close {
+    top: max(20px, env(safe-area-inset-top, 20px));
+    right: 12px;
+    padding: 10px;
+    font-size: 2.4rem;
+  }
+}
 
 /* Dark mode overrides */
 [data-theme="dark"] .form-attach-thumb--loading { background: #1e293b; }
