@@ -626,6 +626,19 @@ body {
 }
 .class-add-hw-btn:hover { background: #334155; }
 
+.add-topic-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 20px 0 8px;
+}
+.add-topic-btn {
+  font-size: .82rem;
+  padding: 7px 22px;
+  opacity: .75;
+  transition: opacity var(--t), background var(--t);
+}
+.add-topic-btn:hover { opacity: 1; }
+
 /* Edit / Delete buttons on homework items (visible on row hover) */
 .btn-icon-sm {
   display: flex;

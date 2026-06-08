@@ -367,6 +367,19 @@ function renderSchedule() {
       });
     container.appendChild(buildClassRow(cls, pending));
   });
+
+  const addTopicWrap = document.createElement('div');
+  addTopicWrap.className = 'add-topic-wrap';
+  const addTopicBtn = document.createElement('button');
+  addTopicBtn.className = 'btn btn-primary add-topic-btn';
+  addTopicBtn.textContent = '+ Add New Group';
+  addTopicBtn.addEventListener('click', () => {
+    populateSettingsTabSelect(state.activeTabId);
+    resetClassForm();
+    openGroupForm();
+  });
+  addTopicWrap.appendChild(addTopicBtn);
+  container.appendChild(addTopicWrap);
 }
 
 function buildClassRow(cls, pendingHw) {
@@ -980,8 +993,8 @@ function updateSettingsLabels() {
   const editId = document.getElementById('edit-class-id').value;
   if (!editId) {
     const singular = singularize(name);
-    document.getElementById('group-form-title').textContent  = `Add New ${singular}`;
-    document.getElementById('class-form-submit').textContent = `Add ${singular}`;
+    document.getElementById('group-form-title').textContent  = `Add New Group`;
+    document.getElementById('class-form-submit').textContent = `Add Group`;
   }
 }
 
@@ -1639,7 +1652,11 @@ function wireEvents() {
   document.getElementById('settings-btn').addEventListener('click', () => openSettings('account'));
   document.getElementById('empty-settings-btn').addEventListener('click', () => openSettings('tabs'));
   document.getElementById('empty-template-btn').addEventListener('click', () => openSettings('templates'));
-  document.getElementById('empty-add-group-btn').addEventListener('click', () => openSettings('classes'));
+  document.getElementById('empty-add-group-btn').addEventListener('click', () => {
+    populateSettingsTabSelect(state.activeTabId);
+    resetClassForm();
+    openGroupForm();
+  });
   document.getElementById('user-avatar').addEventListener('click', () => openSettings('account'));
 
   document.getElementById('undo-btn').addEventListener('click', () => history.undo());

@@ -102,7 +102,7 @@
   <header class="site-header">
     <h1 class="logo">StudyFlow</h1>
     <div class="header-actions">
-      <button class="btn btn-primary" id="add-hw-btn">+ Add Item</button>
+      <button class="btn btn-primary" id="add-hw-btn">+ Add Assignment</button>
       <div class="undo-redo-group">
         <button class="btn-icon-header" id="undo-btn" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>↩</button>
         <button class="btn-icon-header" id="redo-btn" title="Redo (Ctrl+Y)" aria-label="Redo" disabled>↪</button>
@@ -140,7 +140,7 @@
               <button class="btn btn-secondary" id="empty-settings-btn">Set Up Manually</button>
             </div>
             <div id="empty-actions-tab" class="empty-state-actions hidden">
-              <button class="btn btn-primary" id="empty-add-group-btn">Open Settings</button>
+              <button class="btn btn-primary" id="empty-add-group-btn">+ Add New Group</button>
             </div>
           </div>
         </div>
@@ -180,7 +180,7 @@
       <form id="hw-form" novalidate>
         <input type="hidden" id="hw-edit-id">
         <div class="form-group">
-          <label for="hw-class">Topic <span class="required">*</span></label>
+          <label for="hw-class">Group <span class="required">*</span></label>
           <select id="hw-class" required></select>
         </div>
         <div class="form-group">
@@ -550,7 +550,7 @@
     <div class="modal-backdrop" id="group-form-backdrop"></div>
     <div class="modal-box">
       <div class="modal-header">
-        <h2 id="group-form-title">Add New Topic</h2>
+        <h2 id="group-form-title">Add New Group</h2>
         <button class="close-btn" id="close-group-form" aria-label="Close">&times;</button>
       </div>
       <div class="modal-form-body">
@@ -588,7 +588,7 @@
 
           <div class="form-actions">
             <button type="button" class="btn btn-secondary" id="cancel-edit-class">Cancel</button>
-            <button type="submit" class="btn btn-primary" id="class-form-submit">Add Topic</button>
+            <button type="submit" class="btn btn-primary" id="class-form-submit">Add New Group</button>
           </div>
         </form>
       </div>
