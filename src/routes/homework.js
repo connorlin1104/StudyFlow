@@ -16,7 +16,7 @@ router.get('/', async (req, res) => {
 });
 
 router.post('/', async (req, res) => {
-  const { classId, description, notes, deadline, deadlineTime, remindBefore } = req.body;
+  const { classId, description, notes, deadline, deadlineTime, remindBefore, attachments } = req.body;
   if (!classId || !description?.trim()) {
     return res.status(400).json({ error: 'classId and description are required' });
   }
@@ -31,13 +31,14 @@ router.post('/', async (req, res) => {
     if (deadline)                 data.deadline     = deadline;
     if (deadlineTime)             data.deadlineTime = deadlineTime;
     if (remindBefore !== undefined && remindBefore !== null) data.remindBefore = remindBefore;
+    if (Array.isArray(attachments) && attachments.length) data.attachments = attachments;
     const ref = await col(req.uid).add(data);
     res.status(201).json({ id: ref.id, ...data });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.put('/:id', async (req, res) => {
-  const { description, notes, deadline, deadlineTime, completed, remindBefore } = req.body;
+  const { description, notes, deadline, deadlineTime, completed, remindBefore, attachments } = req.body;
   try {
     const ref      = doc(req.uid, req.params.id);
     const existing = (await ref.get()).data() || {};
@@ -51,6 +52,7 @@ router.put('/:id', async (req, res) => {
       update.completedAt = completed ? FieldValue.serverTimestamp() : null;
     }
     if (remindBefore !== undefined) update.remindBefore = remindBefore;
+    if (attachments  !== undefined) update.attachments  = Array.isArray(attachments) ? attachments : [];
     if ((deadline !== undefined && deadline !== existing.deadline) ||
         (deadlineTime !== undefined && deadlineTime !== existing.deadlineTime)) {
       update.remindedAt = null;

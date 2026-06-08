@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>StudyFlow — Scheduler</title>
   <!-- Favicon & app icons -->
-  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="icon" href="/icons/favicon.png" type="image/png">
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png">
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
@@ -188,8 +188,16 @@
           <input type="text" id="hw-desc" placeholder="e.g. Chapter 5 problems, p. 42-50" required autocomplete="off">
         </div>
         <div class="form-group">
-          <label for="hw-notes">Notes <span class="optional">(optional)</span></label>
+          <div class="notes-header">
+            <label for="hw-notes">Notes <span class="optional">(optional)</span></label>
+            <button type="button" class="attach-btn" id="hw-attach-btn" title="Attach files">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+              Attach
+            </button>
+          </div>
           <textarea id="hw-notes" placeholder="Any extra details, resources, etc."></textarea>
+          <div id="form-attachments" class="form-attachments hidden"></div>
+          <input type="file" id="hw-attach-input" multiple accept="image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip" style="display:none">
         </div>
         <div class="form-group">
           <label>Deadline <span class="optional">(optional)</span></label>
@@ -815,11 +823,17 @@
     </div>
   </div>
 
+  <div id="lightbox" class="lightbox hidden" role="dialog" aria-label="Image viewer">
+    <button class="lightbox-close" id="lightbox-close" aria-label="Close">&times;</button>
+    <img class="lightbox-img" id="lightbox-img" src="" alt="">
+  </div>
+
   <!-- Firebase Auth only (no Firestore — data stays on the local server) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-  <script src="config.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
+  <script src="js/config.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

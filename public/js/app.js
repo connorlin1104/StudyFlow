@@ -6,8 +6,11 @@
    ============================================================================= */
 firebase.initializeApp(window.FIREBASE_CONFIG);
 
-const auth = firebase.auth();
+const auth    = firebase.auth();
+const storage = firebase.storage();
 let currentUser = null;
+
+let formAttachments = []; // { id, name, type, localUrl, url, storagePath, uploading, error }
 
 /* =============================================================================
    API HELPER — sends Firebase ID token with every request
@@ -404,10 +407,98 @@ function buildClassRow(cls, pendingHw) {
   return row;
 }
 
+/* =============================================================================
+   ATTACHMENTS
+   ============================================================================= */
+function isImageType(type) { return type && type.startsWith('image/'); }
+
+function fileIcon(type) {
+  if (!type) return '📎';
+  if (type.includes('pdf'))          return '📄';
+  if (type.includes('word') || type.includes('doc')) return '📝';
+  if (type.includes('sheet') || type.includes('excel') || type.includes('xls')) return '📊';
+  if (type.includes('presentation') || type.includes('ppt')) return '📑';
+  if (type.includes('video'))        return '🎬';
+  if (type.includes('zip') || type.includes('compressed')) return '🗜️';
+  return '📎';
+}
+
+function renderFormAttachments() {
+  const container = document.getElementById('form-attachments');
+  if (!container) return;
+  container.classList.toggle('hidden', formAttachments.length === 0);
+  container.innerHTML = '';
+  formAttachments.forEach(att => {
+    const item = document.createElement('div');
+    item.className = 'form-attach-item';
+    if (isImageType(att.type)) {
+      if (att.uploading) {
+        item.innerHTML = `<div class="form-attach-thumb form-attach-thumb--loading"><span class="spinner-sm"></span></div>`;
+      } else {
+        item.innerHTML = `<img class="form-attach-thumb" src="${esc(att.localUrl || att.url)}" alt="${esc(att.name)}">`;
+      }
+    } else {
+      item.innerHTML = `<div class="form-attach-file">${fileIcon(att.type)}<span class="form-attach-file-name">${esc(att.name)}</span>${att.uploading ? '<span class="spinner-sm"></span>' : ''}</div>`;
+    }
+    const rm = document.createElement('button');
+    rm.type = 'button'; rm.className = 'form-attach-remove'; rm.innerHTML = '&times;'; rm.title = 'Remove';
+    rm.addEventListener('click', () => removeFormAttachment(att.id));
+    item.appendChild(rm);
+    container.appendChild(item);
+  });
+}
+
+async function removeFormAttachment(id) {
+  const idx = formAttachments.findIndex(a => a.id === id);
+  if (idx === -1) return;
+  const att = formAttachments.splice(idx, 1)[0];
+  renderFormAttachments();
+  if (att.localUrl) URL.revokeObjectURL(att.localUrl);
+  if (att.storagePath && !att.uploading) {
+    try { await storage.ref(att.storagePath).delete(); } catch (_) {}
+  }
+}
+
+function handleAttachFiles(files) {
+  if (!currentUser || !files || !files.length) return;
+  Array.from(files).forEach(file => {
+    const id = `att-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const localUrl = isImageType(file.type) ? URL.createObjectURL(file) : null;
+    const att = { id, name: file.name, type: file.type, localUrl, url: null, storagePath: null, uploading: true, error: false, _promise: null };
+    formAttachments.push(att);
+    renderFormAttachments();
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const storagePath = `users/${currentUser.uid}/hw-attachments/${id}-${safeName}`;
+    att._promise = storage.ref(storagePath).put(file)
+      .then(snap => snap.ref.getDownloadURL())
+      .then(url => {
+          if (formAttachments.includes(att)) { att.url = url; att.storagePath = storagePath; att.uploading = false; }
+        renderFormAttachments();
+      })
+      .catch(() => {
+        if (formAttachments.includes(att)) { att.uploading = false; att.error = true; }
+        renderFormAttachments();
+        toast(`Failed to upload "${file.name}"`, 'error');
+      });
+  });
+}
+
+function openLightbox(url) {
+  document.getElementById('lightbox-img').src = url;
+  document.getElementById('lightbox').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+}
+function closeLightbox() {
+  document.getElementById('lightbox').classList.add('hidden');
+  document.getElementById('lightbox-img').src = '';
+  document.body.style.overflow = '';
+}
+
 function buildHwItem(hw) {
   const item = document.createElement('div');
   const hasMultiLineNotes = hw.notes && hw.notes.includes('\n');
-  const isExpandable = !!(hasMultiLineNotes || hw.description.length > 50);
+  const hasAttachments = !!(hw.attachments && hw.attachments.length);
+  const isExpandable = !!(hasMultiLineNotes || hw.description.length > 50 || hasAttachments);
   const startExpanded = isExpandable && new Set(prefs.get('expandedHw', [])).has(hw.id);
   item.className = `hw-item${isExpandable ? ' hw-item--collapsible' : ''}${startExpanded ? ' hw-item--expanded' : ''}`;
   item.dataset.hwId = hw.id;
@@ -418,6 +509,13 @@ function buildHwItem(hw) {
     : '';
   const notesHtml = hw.notes
     ? `<span class="hw-notes${hasMultiLineNotes ? '' : ' hw-notes--always'}">${esc(hw.notes)}</span>`
+    : '';
+  const attachmentsHtml = hasAttachments
+    ? `<div class="hw-attachments">${hw.attachments.map(a =>
+        isImageType(a.type)
+          ? `<img class="hw-attach-img" src="${esc(a.url)}" alt="${esc(a.name)}" data-lightbox="${esc(a.url)}" title="${esc(a.name)}">`
+          : `<a class="hw-attach-file" href="${esc(a.url)}" target="_blank" rel="noopener" title="${esc(a.name)}">${fileIcon(a.type)}<span>${esc(a.name)}</span></a>`
+      ).join('')}</div>`
     : '';
   const hintHtml = isExpandable ? `<span class="hw-expand-hint" aria-hidden="true">${startExpanded ? '▴ less' : '▾ more'}</span>` : '';
 
@@ -430,10 +528,12 @@ function buildHwItem(hw) {
       <span class="hw-desc">${esc(hw.description)}</span>
       ${hintHtml}
       ${notesHtml}
+      ${attachmentsHtml}
     </div>
     <div class="hw-right">
       <button class="btn-icon-sm hw-edit-btn"   data-hw-id="${hw.id}" aria-label="Edit">✎</button>
       <button class="btn-icon-sm hw-delete"      data-hw-id="${hw.id}" aria-label="Delete">&#x2715;</button>
+      ${hasAttachments ? `<span class="hw-attach-badge" title="${hw.attachments.length} attachment${hw.attachments.length !== 1 ? 's' : ''}"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>${hw.attachments.length > 1 ? `<span>${hw.attachments.length}</span>` : ''}</span>` : ''}
       ${dlHtml}
     </div>
   `;
@@ -726,6 +826,8 @@ function openHwModal(preselectedClassId = null) {
   document.getElementById('hw-modal-title').textContent = 'New Assignment';
   document.getElementById('hw-form-submit').textContent = 'Add to Schedule';
   document.getElementById('hw-reminder-group').classList.add('hidden');
+  formAttachments = [];
+  renderFormAttachments();
 
   // Build grouped <optgroup> select
   const select = document.getElementById('hw-class');
@@ -776,6 +878,14 @@ function openHwEditModal(hwId) {
 
   document.getElementById('hw-modal-title').textContent   = 'Edit Assignment';
   document.getElementById('hw-form-submit').textContent   = 'Save Changes';
+
+  // Load existing attachments into form state
+  formAttachments = (hw.attachments || []).map(a => ({
+    ...a,
+    id: `att-${Math.random().toString(36).slice(2)}`,
+    localUrl: null, uploading: false, error: false
+  }));
+  renderFormAttachments();
 }
 
 function closeHwModal() {
@@ -923,6 +1033,17 @@ async function handleAddHomework(e) {
   let   deadline = document.getElementById('hw-deadline').value;
   if (!classId || !description) return;
 
+  const pendingUploads = formAttachments.filter(a => a.uploading && a._promise);
+  if (pendingUploads.length) {
+    toast('Finishing uploads…', 'info');
+    await Promise.allSettled(pendingUploads.map(a => a._promise));
+    if (formAttachments.some(a => a.error)) {
+      toast('Some files failed to upload — remove them and try again.', 'error');
+      submitBtn.disabled = false;
+      return;
+    }
+  }
+
   // Fix Chrome: if year is missing/invalid, default to current year
   if (deadline) {
     const parts = deadline.split('-');
@@ -951,11 +1072,15 @@ async function handleAddHomework(e) {
     deadlineMs = new Date(`${deadline}T${timeStr}:00`).getTime();
   }
 
+  const attachments = formAttachments
+    .filter(a => a.url && !a.error)
+    .map(({ name, type, url, storagePath }) => ({ name, type, url, storagePath }));
   const payload = {
     classId, description,
-    ...(notes        && { notes }),
-    ...(deadline     && { deadline }),
-    ...(deadlineTime && { deadlineTime }),
+    ...(notes             && { notes }),
+    ...(attachments.length && { attachments }),
+    ...(deadline          && { deadline }),
+    ...(deadlineTime      && { deadlineTime }),
     ...(deadlineMs  != null && { deadlineMs }),
     // In edit mode always include remindBefore (even null) so server can clear legacy 0 values
     ...(editId ? { remindBefore } : remindBefore != null ? { remindBefore } : {})
@@ -1525,6 +1650,16 @@ function wireEvents() {
   document.getElementById('cancel-hw').addEventListener('click', closeHwModal);
   document.getElementById('hw-backdrop').addEventListener('click', closeHwModal);
 
+  document.getElementById('hw-attach-btn').addEventListener('click', () => document.getElementById('hw-attach-input').click());
+  document.getElementById('hw-attach-input').addEventListener('change', e => {
+    handleAttachFiles(e.target.files);
+    e.target.value = '';
+  });
+  document.getElementById('lightbox').addEventListener('click', e => {
+    if (!e.target.closest('.lightbox-img')) closeLightbox();
+  });
+  document.getElementById('lightbox-close').addEventListener('click', closeLightbox);
+
   document.getElementById('close-settings').addEventListener('click', closeSettings);
   document.getElementById('settings-backdrop').addEventListener('click', closeSettings);
   document.getElementById('class-form').addEventListener('submit', handleClassFormSubmit);
@@ -1809,6 +1944,10 @@ function wireEvents() {
     if (delBtn)  { handleDeleteHw(delBtn.dataset.hwId);   return; }
     if (addBtn)  { openHwModal(addBtn.dataset.classId);   return; }
 
+    // Attachment image → lightbox
+    const attachImg = e.target.closest('.hw-attach-img');
+    if (attachImg) { openLightbox(attachImg.dataset.lightbox); return; }
+
     // Toggle topic collapse (click anywhere on header except + Add)
     const header = e.target.closest('.class-header');
     if (header) {
@@ -1830,7 +1969,7 @@ function wireEvents() {
 
     // Toggle hw-item expand/collapse (click anywhere on item except interactive controls)
     const hwItem = e.target.closest('.hw-item--collapsible');
-    if (hwItem && !e.target.closest('.hw-check-label') && !e.target.closest('.hw-edit-btn') && !e.target.closest('.hw-delete')) {
+    if (hwItem && !e.target.closest('.hw-check-label') && !e.target.closest('.hw-edit-btn') && !e.target.closest('.hw-delete') && !e.target.closest('.hw-attach-file')) {
       const expanded = hwItem.classList.toggle('hw-item--expanded');
       const hint = hwItem.querySelector('.hw-expand-hint');
       if (hint) hint.textContent = expanded ? '▴ less' : '▾ more';
@@ -1889,6 +2028,7 @@ function wireEvents() {
     if (mod && e.key==='z' && !e.shiftKey) { e.preventDefault(); history.undo(); return; }
     if (mod && (e.key==='y' || (e.key==='z' && e.shiftKey))) { e.preventDefault(); history.redo(); return; }
     if (e.key==='Escape') {
+      if (!document.getElementById('lightbox').classList.contains('hidden')) { closeLightbox(); return; }
       closeHwModal(); closeSettings(); closeGroupForm();
       closeModal('whats-new-modal'); closeModal('privacy-modal');
     }

@@ -1784,3 +1784,220 @@ html.pwa-mode body {
   .settings-layout { flex-direction: column; }
   .settings-sidebar { width: 100%; flex-direction: row; border-right: none; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 }
+
+/* =============================================================================
+   ATTACHMENTS — form + hw-item + lightbox
+   ============================================================================= */
+
+/* Notes label row with attach button */
+.notes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.attach-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: .72rem;
+  font-weight: 600;
+  font-family: inherit;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background var(--t), color var(--t), border-color var(--t);
+  letter-spacing: .02em;
+}
+.attach-btn:hover {
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+/* Form preview area */
+.form-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+.form-attach-item {
+  position: relative;
+}
+.form-attach-thumb {
+  width: 72px;
+  height: 72px;
+  border-radius: 6px;
+  border: 1.5px solid var(--border);
+  object-fit: cover;
+  display: block;
+}
+.form-attach-thumb--loading {
+  width: 72px;
+  height: 72px;
+  border-radius: 6px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.form-attach-file {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  height: 36px;
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  font-size: .78rem;
+  color: var(--text-muted);
+  background: var(--surface);
+  max-width: 150px;
+}
+.form-attach-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.form-attach-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--danger);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-size: .75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  transition: transform var(--t);
+}
+.form-attach-remove:hover { transform: scale(1.15); }
+
+/* Small spinner for upload state */
+.spinner-sm {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin .65s linear infinite;
+  flex-shrink: 0;
+}
+
+/* Attachment thumbnails inside hw-items */
+.hw-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.hw-item--collapsible .hw-attachments { display: none; }
+.hw-item--expanded    .hw-attachments { display: flex; }
+
+.hw-attach-img {
+  width: 72px;
+  height: 72px;
+  border-radius: 6px;
+  border: 1.5px solid var(--border);
+  object-fit: cover;
+  cursor: zoom-in;
+  transition: opacity var(--t), transform var(--t), box-shadow var(--t);
+}
+.hw-attach-img:hover {
+  opacity: .9;
+  transform: scale(1.04);
+  box-shadow: 0 4px 12px rgba(0,0,0,.15);
+}
+.hw-attach-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 9px;
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  font-size: .73rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  background: var(--surface);
+  max-width: 130px;
+  transition: background var(--t), color var(--t);
+}
+.hw-attach-file:hover {
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  color: var(--primary);
+}
+.hw-attach-file span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Lightbox */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 24px;
+  cursor: zoom-out;
+  animation: lightbox-in .15s ease;
+}
+.lightbox.hidden { display: none; }
+@keyframes lightbox-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.lightbox-img {
+  max-width: 100%;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 24px 80px rgba(0,0,0,.6);
+  cursor: default;
+}
+.lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  color: #fff;
+  font-size: 2.2rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  opacity: .7;
+  line-height: 1;
+  transition: opacity .15s;
+  padding: 0;
+}
+.lightbox-close:hover { opacity: 1; }
+
+/* Dark mode overrides */
+[data-theme="dark"] .form-attach-thumb--loading { background: #1e293b; }
+[data-theme="dark"] .hw-attach-img:hover { box-shadow: 0 4px 12px rgba(0,0,0,.4); }
+
+/* Attachment badge on hw-item (always visible) */
+.hw-attach-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--text-muted);
+  font-size: .72rem;
+  opacity: .75;
+  flex-shrink: 0;
+}
+.hw-attach-badge svg { flex-shrink: 0; }

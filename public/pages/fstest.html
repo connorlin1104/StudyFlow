@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head><title>Firestore Test</title></head>
+<body>
+<h2>Firestore Write Test</h2>
+<p>Open DevTools console to see results.</p>
+<button id="btn">Run SDK Test</button>
+<button id="btn2">Run REST Test</button>
+<pre id="out" style="background:#111;color:#0f0;padding:12px;margin-top:12px;min-height:80px;"></pre>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="../js/config.js"></script>
+<script>
+  const log = msg => {
+    console.log(msg);
+    document.getElementById('out').textContent += msg + '\n';
+  };
+
+  firebase.initializeApp(window.FIREBASE_CONFIG);
+  const auth = firebase.auth();
+  const db   = firebase.firestore();
+  db.settings({ experimentalForceLongPolling: true, experimentalAutoDetectLongPolling: false, merge: true });
+
+  log('Firebase initialized. Project: ' + window.FIREBASE_CONFIG.projectId);
+
+  async function getUser() {
+    const user = auth.currentUser;
+    if (user) return user;
+    log('Not signed in — signing in with Google...');
+    const result = await auth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
+    log('Signed in as: ' + result.user.email);
+    return result.user;
+  }
+
+  // --- SDK test ---
+  document.getElementById('btn').addEventListener('click', async () => {
+    document.getElementById('out').textContent = '';
+    log('=== SDK TEST ===');
+    try {
+      const user = await getUser();
+      log('UID: ' + user.uid);
+      const docRef = db.collection('users').doc(user.uid).collection('test').doc('ping');
+      const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('TIMED OUT after 8 seconds')), 8000)
+      );
+      await Promise.race([
+        docRef.set({ hello: 'world', ts: firebase.firestore.FieldValue.serverTimestamp() }),
+        timeout
+      ]);
+      log('SDK write: SUCCESS');
+    } catch (e) {
+      log('SDK write FAILED: ' + e.code + ' — ' + e.message);
+    }
+  });
+
+  // --- REST test (bypasses SDK entirely) ---
+  document.getElementById('btn2').addEventListener('click', async () => {
+    document.getElementById('out').textContent = '';
+    log('=== REST TEST ===');
+    try {
+      const user = await getUser();
+      const token = await user.getIdToken();
+      const projectId = window.FIREBASE_CONFIG.projectId;
+      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${user.uid}/test/ping`;
+      log('PATCH ' + url);
+      const res = await fetch(url, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ fields: { hello: { stringValue: 'world' } } })
+      });
+      const json = await res.json();
+      if (res.ok) {
+        log('REST write: SUCCESS (' + res.status + ')');
+        log(JSON.stringify(json, null, 2));
+      } else {
+        log('REST write FAILED (' + res.status + '): ' + JSON.stringify(json));
+      }
+    } catch (e) {
+      log('REST fetch error: ' + e.message);
+    }
+  });
+</script>
+</body>
+</html>

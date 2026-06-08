@@ -17,7 +17,7 @@ router.get('/', async (req, res) => {
 });
 
 router.post('/', async (req, res) => {
-  const { classId, description, notes, deadline, deadlineTime, deadlineMs, remindBefore } = req.body;
+  const { classId, description, notes, deadline, deadlineTime, deadlineMs, remindBefore, attachments } = req.body;
   if (!classId || !description?.trim()) {
     return res.status(400).json({ error: 'classId and description are required' });
   }
@@ -33,6 +33,7 @@ router.post('/', async (req, res) => {
     if (deadlineTime)             data.deadlineTime = deadlineTime;
     if (remindBefore !== undefined && remindBefore !== null) data.remindBefore = remindBefore;
     if (deadlineMs   != null) data.deadlineMs = deadlineMs;
+    if (Array.isArray(attachments) && attachments.length) data.attachments = attachments;
     const ref = await col(req.uid).add(data);
 
     const notifyTaskName = await scheduleNotification(req.uid, ref.id, data);
@@ -43,7 +44,7 @@ router.post('/', async (req, res) => {
 });
 
 router.put('/:id', async (req, res) => {
-  const { description, notes, deadline, deadlineTime, deadlineMs, completed, remindBefore } = req.body;
+  const { description, notes, deadline, deadlineTime, deadlineMs, completed, remindBefore, attachments } = req.body;
   try {
     const ref      = doc(req.uid, req.params.id);
     const existing = (await ref.get()).data() || {};
@@ -58,6 +59,7 @@ router.put('/:id', async (req, res) => {
     }
     if (remindBefore !== undefined) update.remindBefore = remindBefore;
     if (deadlineMs   !== undefined) update.deadlineMs   = deadlineMs;
+    if (attachments  !== undefined) update.attachments  = Array.isArray(attachments) ? attachments : [];
     if ((deadline !== undefined && deadline !== existing.deadline) ||
         (deadlineTime !== undefined && deadlineTime !== existing.deadlineTime)) {
       update.remindedAt = null;
