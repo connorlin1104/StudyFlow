@@ -516,6 +516,27 @@ body {
 }
 .hw-item:last-child { border-bottom: none; }
 .hw-item:hover { background: #f8fafc; }
+.hw-item.hw-dragging  { opacity: .35; }
+.hw-item.hw-drag-over { border-top: 2px solid var(--primary); }
+.hw-item[draggable="true"] { cursor: default; }
+
+.hw-drag-handle {
+  color: var(--border);
+  cursor: grab;
+  font-size: 1rem;
+  user-select: none;
+  flex-shrink: 0;
+  padding: 0 2px;
+  line-height: 1;
+  opacity: 0;
+  transition: color var(--t), opacity var(--t);
+  touch-action: none;
+}
+.hw-item:hover .hw-drag-handle { opacity: 1; color: var(--text-muted); }
+
+@media (pointer: coarse) {
+  .hw-drag-handle { opacity: .4; }
+}
 
 .hw-item--done { opacity: .65; background: #f8fafc; }
 .hw-item--done .hw-desc { text-decoration: line-through; color: var(--text-muted); }

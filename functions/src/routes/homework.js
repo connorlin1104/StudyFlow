@@ -16,6 +16,18 @@ router.get('/', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Must appear before /:id routes
+router.post('/reorder', async (req, res) => {
+  const { order } = req.body;
+  if (!Array.isArray(order)) return res.status(400).json({ error: 'order must be an array of IDs' });
+  try {
+    const batch = db.batch();
+    order.forEach((id, index) => batch.update(doc(req.uid, id), { order: index }));
+    await batch.commit();
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 router.post('/', async (req, res) => {
   const { classId, description, notes, deadline, deadlineTime, deadlineMs, remindBefore, attachments } = req.body;
   if (!classId || !description?.trim()) {

@@ -54,7 +54,8 @@ const api = {
     list()              { return apiFetch('GET',    '/api/homework'); },
     create(body)        { return apiFetch('POST',   '/api/homework', body); },
     update(id, body)    { return apiFetch('PUT',    `/api/homework/${id}`, body); },
-    remove(id)          { return apiFetch('DELETE', `/api/homework/${id}`); }
+    remove(id)          { return apiFetch('DELETE', `/api/homework/${id}`); },
+    reorder(orderedIds) { return apiFetch('POST',   '/api/homework/reorder', { order: orderedIds }); }
   }
 };
 
@@ -146,6 +147,7 @@ const PRESET_COLORS = [
 // Module-level drag state for settings reorder
 let _draggedClassId = null;
 let _draggedTabId   = null;
+let _draggedHwId    = null;
 
 // Returns the first preset color not yet used in the given tab
 function getNextAvailableColor(tabId) {
@@ -357,14 +359,19 @@ function renderSchedule() {
   emptyState.classList.add('hidden');
   container.innerHTML = '';
   tabClasses.forEach(cls => {
-    const pending = state.homework
-      .filter(h => h.classId===cls.id && !h.completed)
-      .sort((a,b) => {
-        if (!a.deadline && !b.deadline) return 0;
-        if (!a.deadline) return -1;
-        if (!b.deadline) return 1;
-        return new Date(a.deadline + (a.deadlineTime ? `T${a.deadlineTime}` : 'T23:59')) - new Date(b.deadline + (b.deadlineTime ? `T${b.deadlineTime}` : 'T23:59'));
-      });
+    const groupHw = state.homework.filter(h => h.classId === cls.id && !h.completed);
+    const hasManualOrder = groupHw.some(h => h.order != null);
+    const pending = groupHw.sort((a, b) => {
+      if (hasManualOrder) {
+        if (a.order != null && b.order != null) return a.order - b.order;
+        if (a.order != null) return -1;
+        if (b.order != null) return 1;
+      }
+      if (!a.deadline && !b.deadline) return 0;
+      if (!a.deadline) return 1;
+      if (!b.deadline) return -1;
+      return new Date(a.deadline + (a.deadlineTime ? `T${a.deadlineTime}` : 'T23:59')) - new Date(b.deadline + (b.deadlineTime ? `T${b.deadlineTime}` : 'T23:59'));
+    });
     container.appendChild(buildClassRow(cls, pending));
   });
 
@@ -415,7 +422,11 @@ function buildClassRow(cls, pendingHw) {
   if (pendingHw.length === 0) {
     hwList.innerHTML = `<div class="hw-empty">No pending assignments ✓</div>`;
   } else {
-    pendingHw.forEach(hw => hwList.appendChild(buildHwItem(hw)));
+    pendingHw.forEach(hw => {
+      const item = buildHwItem(hw);
+      addHwDragBehavior(item, hw, hwList);
+      hwList.appendChild(item);
+    });
   }
   return row;
 }
@@ -533,6 +544,7 @@ function buildHwItem(hw) {
   const hintHtml = isExpandable ? `<span class="hw-expand-hint" aria-hidden="true">${startExpanded ? '▴ less' : '▾ more'}</span>` : '';
 
   item.innerHTML = `
+    <span class="hw-drag-handle" title="Drag to reorder">⠿</span>
     <label class="hw-check-label" title="Mark complete">
       <input type="checkbox" class="hw-check" data-hw-id="${hw.id}">
       <span class="custom-check"></span>
@@ -551,6 +563,133 @@ function buildHwItem(hw) {
     </div>
   `;
   return item;
+}
+
+function addHwDragBehavior(item, hw, hwList) {
+  // Desktop: HTML5 drag-and-drop
+  item.draggable = true;
+
+  item.addEventListener('dragstart', e => {
+    _draggedHwId = hw.id;
+    e.dataTransfer.effectAllowed = 'move';
+    setTimeout(() => item.classList.add('hw-dragging'), 0);
+  });
+  item.addEventListener('dragend', () => {
+    item.classList.remove('hw-dragging');
+    hwList.querySelectorAll('.hw-item').forEach(el => el.classList.remove('hw-drag-over'));
+    _draggedHwId = null;
+  });
+  item.addEventListener('dragover', e => {
+    e.preventDefault();
+    if (_draggedHwId === hw.id) return;
+    hwList.querySelectorAll('.hw-item').forEach(el => el.classList.remove('hw-drag-over'));
+    item.classList.add('hw-drag-over');
+  });
+  item.addEventListener('dragleave', e => {
+    if (!item.contains(e.relatedTarget)) item.classList.remove('hw-drag-over');
+  });
+  item.addEventListener('drop', async e => {
+    e.preventDefault();
+    item.classList.remove('hw-drag-over');
+    if (!_draggedHwId || _draggedHwId === hw.id) return;
+    await commitHwReorder(hwList, _draggedHwId, hw.id);
+  });
+
+  // Mobile: long-press touch drag
+  let touchTimer = null;
+  let touchActive = false;
+  let touchClone = null;
+  let touchOffX = 0, touchOffY = 0;
+
+  item.addEventListener('touchstart', e => {
+    const touch = e.touches[0];
+    touchTimer = setTimeout(() => {
+      touchActive = true;
+      _draggedHwId = hw.id;
+      item.classList.add('hw-dragging');
+      if (navigator.vibrate) navigator.vibrate(50);
+      const rect = item.getBoundingClientRect();
+      touchOffX = touch.clientX - rect.left;
+      touchOffY = touch.clientY - rect.top;
+      touchClone = item.cloneNode(true);
+      touchClone.className = 'hw-item hw-drag-clone';
+      touchClone.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;z-index:9999;pointer-events:none;opacity:.85;box-shadow:0 8px 24px rgba(0,0,0,.18);border-radius:8px;`;
+      document.body.appendChild(touchClone);
+    }, 300);
+  }, { passive: true });
+
+  item.addEventListener('touchmove', e => {
+    if (!touchActive) { clearTimeout(touchTimer); return; }
+    e.preventDefault();
+    const touch = e.touches[0];
+    if (touchClone) {
+      touchClone.style.left = `${touch.clientX - touchOffX}px`;
+      touchClone.style.top  = `${touch.clientY - touchOffY}px`;
+      touchClone.style.visibility = 'hidden';
+      const el = document.elementFromPoint(touch.clientX, touch.clientY);
+      touchClone.style.visibility = '';
+      const targetItem = el?.closest?.('.hw-item');
+      hwList.querySelectorAll('.hw-item').forEach(el => el.classList.remove('hw-drag-over'));
+      if (targetItem && targetItem !== item && hwList.contains(targetItem)) {
+        targetItem.classList.add('hw-drag-over');
+      }
+    }
+  }, { passive: false });
+
+  const endTouch = async () => {
+    clearTimeout(touchTimer);
+    if (touchClone) { touchClone.remove(); touchClone = null; }
+    item.classList.remove('hw-dragging');
+    if (!touchActive) { touchActive = false; return; }
+    touchActive = false;
+    const dropTarget = hwList.querySelector('.hw-item.hw-drag-over');
+    hwList.querySelectorAll('.hw-item').forEach(el => el.classList.remove('hw-drag-over'));
+    if (dropTarget && _draggedHwId) {
+      const targetHwId = dropTarget.dataset.hwId;
+      if (targetHwId !== _draggedHwId) await commitHwReorder(hwList, _draggedHwId, targetHwId);
+    }
+    _draggedHwId = null;
+  };
+
+  item.addEventListener('touchend',    endTouch, { passive: true });
+  item.addEventListener('touchcancel', endTouch, { passive: true });
+}
+
+async function commitHwReorder(hwList, fromId, toId) {
+  const items   = [...hwList.querySelectorAll('.hw-item')];
+  const ids     = items.map(el => el.dataset.hwId);
+  const fromIdx = ids.indexOf(fromId);
+  const toIdx   = ids.indexOf(toId);
+  if (fromIdx === -1 || toIdx === -1) return;
+
+  ids.splice(fromIdx, 1);
+  ids.splice(toIdx, 0, fromId);
+
+  ids.forEach((id, i) => {
+    const hw = state.homework.find(h => h.id === id);
+    if (hw) hw.order = i;
+  });
+
+  const classId = state.homework.find(h => h.id === fromId)?.classId;
+  if (classId) {
+    const pending = state.homework
+      .filter(h => h.classId === classId && !h.completed)
+      .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
+    hwList.innerHTML = '';
+    pending.forEach(hw => {
+      const newItem = buildHwItem(hw);
+      addHwDragBehavior(newItem, hw, hwList);
+      hwList.appendChild(newItem);
+    });
+  }
+
+  _draggedHwId = null;
+
+  try {
+    await api.homework.reorder(ids);
+  } catch (err) {
+    toast(`Reorder failed: ${err.message}`, 'error');
+  }
 }
 
 /* =============================================================================
@@ -1986,7 +2125,7 @@ function wireEvents() {
 
     // Toggle hw-item expand/collapse (click anywhere on item except interactive controls)
     const hwItem = e.target.closest('.hw-item--collapsible');
-    if (hwItem && !e.target.closest('.hw-check-label') && !e.target.closest('.hw-edit-btn') && !e.target.closest('.hw-delete') && !e.target.closest('.hw-attach-file')) {
+    if (hwItem && !e.target.closest('.hw-check-label') && !e.target.closest('.hw-edit-btn') && !e.target.closest('.hw-delete') && !e.target.closest('.hw-attach-file') && !e.target.closest('.hw-drag-handle')) {
       const expanded = hwItem.classList.toggle('hw-item--expanded');
       const hint = hwItem.querySelector('.hw-expand-hint');
       if (hint) hint.textContent = expanded ? '▴ less' : '▾ more';
