@@ -1025,7 +1025,7 @@ function openHwEditModal(hwId) {
   }
   // Populate reminder dropdown and show group if deadline is set
   const reminderSel = document.getElementById('hw-reminder');
-  reminderSel.value = (hw.remindBefore != null && hw.remindBefore !== 0) ? String(hw.remindBefore) : '';
+  reminderSel.value = hw.remindBefore != null ? String(hw.remindBefore) : '';
   document.getElementById('hw-reminder-group').classList.toggle('hidden', !hw.deadline);
 
   document.getElementById('hw-modal-title').textContent   = 'Edit Assignment';
