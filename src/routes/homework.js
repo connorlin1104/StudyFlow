@@ -50,11 +50,12 @@ router.post('/', async (req, res) => {
 });
 
 router.put('/:id', async (req, res) => {
-  const { description, notes, deadline, deadlineTime, completed, remindBefore, attachments } = req.body;
+  const { classId, description, notes, deadline, deadlineTime, completed, remindBefore, attachments } = req.body;
   try {
     const ref      = doc(req.uid, req.params.id);
     const existing = (await ref.get()).data() || {};
     const update   = {};
+    if (classId      !== undefined) update.classId      = classId;
     if (description  !== undefined) update.description  = description;
     if (notes        !== undefined) update.notes        = notes;
     if (deadline     !== undefined) update.deadline     = deadline;

@@ -310,6 +310,7 @@ function renderTabBar() {
   state.tabs.forEach(tab => {
     const btn = document.createElement('button');
     btn.className = `tab${tab.id===state.activeTabId ? ' tab--active' : ''}`;
+    btn.dataset.tabId = tab.id;
     btn.textContent = tab.name;
     btn.addEventListener('click', () => setActiveTab(tab.id));
     list.appendChild(btn);
@@ -372,7 +373,9 @@ function renderSchedule() {
       if (!b.deadline) return -1;
       return new Date(a.deadline + (a.deadlineTime ? `T${a.deadlineTime}` : 'T23:59')) - new Date(b.deadline + (b.deadlineTime ? `T${b.deadlineTime}` : 'T23:59'));
     });
-    container.appendChild(buildClassRow(cls, pending));
+    const row = buildClassRow(cls, pending);
+    addClassDragBehavior(row, cls, container);
+    container.appendChild(row);
   });
 
   const addTopicWrap = document.createElement('div');
@@ -405,6 +408,7 @@ function buildClassRow(cls, pendingHw) {
 
   row.innerHTML = `
     <div class="class-header">
+      <span class="class-drag-handle" title="Drag to reorder group">⠿</span>
       <button class="class-toggle-btn" aria-label="Toggle topic" aria-expanded="${!startCollapsed}">${startCollapsed ? '▸' : '▾'}</button>
       <div class="class-meta">
         <span class="class-name-text">${esc(cls.name)}</span>
@@ -429,6 +433,336 @@ function buildClassRow(cls, pendingHw) {
     });
   }
   return row;
+}
+
+/* =============================================================================
+   UNIFIED DRAG-AND-DROP  (pointer-based: mouse + touch + pen, handle-only)
+
+   A clone follows the cursor (so items visibly move, not just fade). Supports:
+     • reorder assignments within a group
+     • move an assignment into another group (any space)
+     • reorder groups within a space
+     • cross-space moves — drag over the top space bar to switch spaces, then
+       drop the held item into the target space.
+   Settings-panel reorder still uses its own native DnD (separate code path).
+   ============================================================================= */
+const DRAG = {
+  hw: {
+    handle: '.hw-drag-handle', item: '.hw-item', dataSel: 'data-hw-id',
+    dragCls: 'hw-dragging', cloneCls: 'hw-drag-clone',
+  },
+  class: {
+    handle: '.class-drag-handle', item: '.class-row', dataSel: 'data-class-id',
+    dragCls: 'class-dragging', cloneCls: 'class-drag-clone',
+  },
+};
+
+// Thin wrappers keep existing render call-sites unchanged.
+function addHwDragBehavior(item, hw)    { attachDrag(item, 'hw',    hw.id);  }
+function addClassDragBehavior(row, cls) { attachDrag(row,  'class', cls.id); }
+
+function nodeFor(type, id) {
+  const cfg = DRAG[type];
+  return document.querySelector(`${cfg.item}[${cfg.dataSel}="${CSS.escape(id)}"]`);
+}
+
+function clearDropHighlights() {
+  document.querySelectorAll('.hw-drag-over, .class-drag-over, .tab--drop, .group-drop-target')
+    .forEach(el => el.classList.remove('hw-drag-over', 'class-drag-over', 'tab--drop', 'group-drop-target'));
+}
+
+function attachDrag(node, type, id) {
+  const cfg = DRAG[type];
+  const handle = node.querySelector(cfg.handle);
+  if (!handle) return;
+  handle.style.touchAction = 'none';
+  handle.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return; // left button only
+    e.preventDefault();
+    e.stopPropagation();
+    startPointerDrag(e, type, id);
+  });
+}
+
+function startPointerDrag(down, type, id) {
+  const cfg = DRAG[type];
+  const pid = down.pointerId;
+  const sx = down.clientX, sy = down.clientY;
+  let started = false, clone = null, offX = 0, offY = 0, lastTab = null;
+
+  const move = ev => {
+    if (ev.pointerId !== pid) return;
+
+    if (!started) {
+      if (Math.abs(ev.clientX - sx) < 5 && Math.abs(ev.clientY - sy) < 5) return;
+      started = true;
+      const src  = nodeFor(type, id);
+      const rect = (src || document.body).getBoundingClientRect();
+      offX = ev.clientX - rect.left;
+      offY = ev.clientY - rect.top;
+      clone = (src || document.createElement('div')).cloneNode(true);
+      clone.classList.add(cfg.cloneCls);
+      clone.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;margin:0;z-index:9999;pointer-events:none;opacity:.92;box-shadow:0 10px 28px rgba(0,0,0,.22);border-radius:10px;`;
+      document.body.appendChild(clone);
+      if (src) src.classList.add(cfg.dragCls);
+      document.body.classList.add('is-dragging');
+      if (ev.pointerType === 'touch' && navigator.vibrate) navigator.vibrate(40);
+    }
+
+    ev.preventDefault();
+    clone.style.left = `${ev.clientX - offX}px`;
+    clone.style.top  = `${ev.clientY - offY}px`;
+
+    clone.style.visibility = 'hidden';
+    const under = document.elementFromPoint(ev.clientX, ev.clientY);
+    clone.style.visibility = '';
+
+    clearDropHighlights();
+
+    // Over the space bar → switch spaces live so the item can be dropped there.
+    const tabBtn = under?.closest?.('.tab[data-tab-id]');
+    if (tabBtn) {
+      tabBtn.classList.add('tab--drop');
+      const tabId = tabBtn.dataset.tabId;
+      if (tabId !== state.activeTabId && tabId !== lastTab) {
+        lastTab = tabId;
+        setActiveTab(tabId);
+      }
+      return;
+    }
+    lastTab = null;
+    highlightDropTarget(type, id, under);
+  };
+
+  const up = ev => {
+    if (ev.pointerId !== pid) return;
+    document.removeEventListener('pointermove', move);
+    document.removeEventListener('pointerup', up);
+    document.removeEventListener('pointercancel', up);
+    if (started) {
+      clone.style.visibility = 'hidden';
+      const under = document.elementFromPoint(ev.clientX, ev.clientY);
+      clone.style.visibility = '';
+      clone.remove();
+      const src = nodeFor(type, id);
+      if (src) src.classList.remove(cfg.dragCls);
+      clearDropHighlights();
+      document.body.classList.remove('is-dragging');
+      commitDrop(type, id, under);
+    }
+  };
+
+  document.addEventListener('pointermove', move, { passive: false });
+  document.addEventListener('pointerup', up);
+  document.addEventListener('pointercancel', up);
+}
+
+function highlightDropTarget(type, id, under) {
+  if (type === 'hw') {
+    const overItem = under?.closest?.('.hw-item');
+    if (overItem && overItem.dataset.hwId !== id) { overItem.classList.add('hw-drag-over'); return; }
+    const overRow = under?.closest?.('.class-row');
+    if (overRow) overRow.classList.add('group-drop-target');
+  } else {
+    const overRow = under?.closest?.('.class-row');
+    if (overRow && overRow.dataset.classId !== id) overRow.classList.add('class-drag-over');
+  }
+}
+
+function commitDrop(type, id, under) {
+  if (type === 'hw') {
+    const overItem = under?.closest?.('.hw-item');
+    const overRow  = under?.closest?.('.class-row');
+    if (overItem && overItem.dataset.hwId !== id) {
+      const targetHw = state.homework.find(h => h.id === overItem.dataset.hwId);
+      if (targetHw?.classId) moveHw(id, targetHw.classId, overItem.dataset.hwId);
+    } else if (overRow) {
+      moveHw(id, overRow.dataset.classId, null); // append to group
+    }
+    // dropped on empty space / tab with no group → leave assignment where it was
+  } else {
+    const overRow = under?.closest?.('.class-row');
+    const targetTabId = state.activeTabId; // may have switched during the drag
+    const beforeId = (overRow && overRow.dataset.classId !== id) ? overRow.dataset.classId : null;
+    moveClass(id, targetTabId, beforeId);
+  }
+}
+
+/* Move / reorder an assignment: set its group, position it, persist. Handles
+   both same-group reorder and cross-group (incl. cross-space) moves. */
+async function moveHw(id, targetClassId, beforeId) {
+  const hw = state.homework.find(h => h.id === id);
+  if (!hw || !targetClassId) return;
+  const prevClassId = hw.classId;
+  hw.classId = targetClassId;
+
+  const pending = state.homework
+    .filter(h => h.classId === targetClassId && !h.completed && h.id !== id)
+    .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
+  const idx = beforeId ? pending.findIndex(h => h.id === beforeId) : -1;
+  if (idx === -1) pending.push(hw); else pending.splice(idx, 0, hw);
+  pending.forEach((h, i) => { h.order = i; });
+
+  let tabChanged = false;
+  if (prevClassId !== targetClassId && state.activeTabId !== null) {
+    // Ensure the target group's space is in view so the move is visible.
+    const targetCls = state.classes.find(c => c.id === targetClassId);
+    if (targetCls && targetCls.tabId !== state.activeTabId) { state.activeTabId = targetCls.tabId; tabChanged = true; }
+  }
+
+  if (tabChanged) renderTabBar();
+  renderSchedule();
+  renderSummary();
+
+  try {
+    if (prevClassId !== targetClassId) await api.homework.update(id, { classId: targetClassId });
+    await api.homework.reorder(pending.map(h => h.id));
+  } catch (err) {
+    toast(`Move failed: ${err.message}`, 'error');
+  }
+}
+
+/* Move / reorder a group: set its space, position it within that space, persist. */
+async function moveClass(id, targetTabId, beforeId) {
+  const cls = state.classes.find(c => c.id === id);
+  if (!cls || !targetTabId) return;
+  const prevTabId = cls.tabId;
+  cls.tabId = targetTabId;
+
+  const group = state.classes
+    .filter(c => c.tabId === targetTabId && c.id !== id)
+    .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
+  const idx = beforeId ? group.findIndex(c => c.id === beforeId) : -1;
+  if (idx === -1) group.push(cls); else group.splice(idx, 0, cls);
+  group.forEach((c, i) => { c.order = i; });
+
+  // Rebuild the array so display order (which renderSchedule reads positionally)
+  // matches: other spaces keep their order, the target space is the reordered set.
+  const others = state.classes.filter(c => c.tabId !== targetTabId && c.id !== id);
+  state.classes = [...others, ...group];
+
+  renderSchedule();
+
+  try {
+    if (prevTabId !== targetTabId) await api.classes.update(id, { tabId: targetTabId });
+    await api.classes.reorder(group.map(c => c.id));
+  } catch (err) {
+    toast(`Move failed: ${err.message}`, 'error');
+  }
+}
+
+/* =============================================================================
+   CONTEXT MENU — custom right-click (desktop) / long-press (touch) menu for
+   assignments and groups: Edit, Rename, Move to…, Delete.
+   ============================================================================= */
+let _ctx = null; // { type, id, x, y }
+
+function closeContextMenu() {
+  document.getElementById('context-menu')?.remove();
+  _ctx = null;
+  document.removeEventListener('pointerdown', onCtxOutside, true);
+  document.removeEventListener('keydown', onCtxKey, true);
+  window.removeEventListener('scroll', closeContextMenu, true);
+  window.removeEventListener('resize', closeContextMenu, true);
+}
+function onCtxOutside(e) { if (!e.target.closest('#context-menu')) closeContextMenu(); }
+function onCtxKey(e)     { if (e.key === 'Escape') { e.preventDefault(); closeContextMenu(); } }
+
+function openContextMenu(x, y, type, id) {
+  closeContextMenu();
+  _ctx = { type, id, x, y };
+  const menu = document.createElement('div');
+  menu.className = 'context-menu';
+  menu.id = 'context-menu';
+  document.body.appendChild(menu);
+  renderCtxRoot();
+  setTimeout(() => {
+    document.addEventListener('pointerdown', onCtxOutside, true);
+    document.addEventListener('keydown', onCtxKey, true);
+    window.addEventListener('scroll', closeContextMenu, true);
+    window.addEventListener('resize', closeContextMenu, true);
+  }, 0);
+}
+
+function positionCtxMenu() {
+  const menu = document.getElementById('context-menu');
+  if (!menu || !_ctx) return;
+  const w = menu.offsetWidth, h = menu.offsetHeight;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  menu.style.left = `${Math.max(8, Math.min(_ctx.x, vw - w - 8))}px`;
+  menu.style.top  = `${Math.max(8, Math.min(_ctx.y, vh - h - 8))}px`;
+}
+
+function ctxBtn(label, icon, onClick, opts = {}) {
+  const b = document.createElement('button');
+  b.className = `ctx-item${opts.danger ? ' ctx-item--danger' : ''}${opts.muted ? ' ctx-item--muted' : ''}`;
+  b.innerHTML = `<span class="ctx-icon">${icon || ''}</span><span class="ctx-label">${esc(label)}</span>${opts.arrow ? '<span class="ctx-arrow">›</span>' : ''}`;
+  if (onClick) b.addEventListener('click', onClick);
+  else b.disabled = true;
+  return b;
+}
+function ctxDivider() { const d = document.createElement('div'); d.className = 'ctx-divider'; return d; }
+
+function renderCtxRoot() {
+  const menu = document.getElementById('context-menu');
+  if (!menu || !_ctx) return;
+  const { type, id } = _ctx;
+  menu.innerHTML = '';
+  if (type === 'hw') {
+    menu.appendChild(ctxBtn('Edit', '✎',     () => { closeContextMenu(); openHwEditModal(id); }));
+    menu.appendChild(ctxBtn('Rename', '🏷',   () => { closeContextMenu(); openHwEditModal(id); focusField('hw-desc'); }));
+    menu.appendChild(ctxBtn('Move to…', '↗',  () => renderCtxMoveHw(), { arrow: true }));
+    menu.appendChild(ctxDivider());
+    menu.appendChild(ctxBtn('Delete', '🗑',    () => { closeContextMenu(); handleDeleteHw(id); }, { danger: true }));
+  } else {
+    menu.appendChild(ctxBtn('Add assignment', '＋', () => { closeContextMenu(); openHwModal(id); }));
+    menu.appendChild(ctxBtn('Edit', '✎',           () => { closeContextMenu(); startEditClass(state.classes.find(c => c.id === id)); }));
+    menu.appendChild(ctxBtn('Rename', '🏷',         () => { closeContextMenu(); startEditClass(state.classes.find(c => c.id === id)); focusField('class-name'); }));
+    menu.appendChild(ctxBtn('Move to space…', '↗',  () => renderCtxMoveClass(), { arrow: true }));
+    menu.appendChild(ctxDivider());
+    menu.appendChild(ctxBtn('Delete', '🗑',          () => { closeContextMenu(); handleDeleteClass(id); }, { danger: true }));
+  }
+  positionCtxMenu();
+}
+
+function renderCtxMoveHw() {
+  const menu = document.getElementById('context-menu');
+  const hw = state.homework.find(h => h.id === _ctx.id);
+  if (!menu || !hw) return;
+  menu.innerHTML = '';
+  menu.appendChild(ctxBtn('Back', '‹', () => renderCtxRoot()));
+  menu.appendChild(ctxDivider());
+  const targets = state.classes
+    .filter(c => c.id !== hw.classId)
+    .sort((a, b) => (state.tabs.findIndex(t => t.id === a.tabId) - state.tabs.findIndex(t => t.id === b.tabId)) || ((a.order ?? 0) - (b.order ?? 0)));
+  if (!targets.length) menu.appendChild(ctxBtn('No other groups', '', null, { muted: true }));
+  targets.forEach(c => {
+    const tab = state.tabs.find(t => t.id === c.tabId);
+    const label = tab && tab.id !== state.activeTabId ? `${tab.name} · ${c.name}` : c.name;
+    menu.appendChild(ctxBtn(label, '📁', () => { closeContextMenu(); moveHw(_ctx?.id ?? hw.id, c.id, null); }));
+  });
+  positionCtxMenu();
+}
+
+function renderCtxMoveClass() {
+  const menu = document.getElementById('context-menu');
+  const cls = state.classes.find(c => c.id === _ctx.id);
+  if (!menu || !cls) return;
+  menu.innerHTML = '';
+  menu.appendChild(ctxBtn('Back', '‹', () => renderCtxRoot()));
+  menu.appendChild(ctxDivider());
+  const targets = state.tabs.filter(t => t.id !== cls.tabId);
+  if (!targets.length) menu.appendChild(ctxBtn('No other spaces', '', null, { muted: true }));
+  const id = _ctx.id;
+  targets.forEach(t => menu.appendChild(ctxBtn(t.name, '🗂', () => { closeContextMenu(); moveClass(id, t.id, null); })));
+  positionCtxMenu();
+}
+
+function focusField(elId) {
+  setTimeout(() => {
+    const el = document.getElementById(elId);
+    if (el) { el.focus(); el.select?.(); }
+  }, 60);
 }
 
 /* =============================================================================
@@ -563,133 +897,6 @@ function buildHwItem(hw) {
     </div>
   `;
   return item;
-}
-
-function addHwDragBehavior(item, hw, hwList) {
-  // Desktop: HTML5 drag-and-drop
-  item.draggable = true;
-
-  item.addEventListener('dragstart', e => {
-    _draggedHwId = hw.id;
-    e.dataTransfer.effectAllowed = 'move';
-    setTimeout(() => item.classList.add('hw-dragging'), 0);
-  });
-  item.addEventListener('dragend', () => {
-    item.classList.remove('hw-dragging');
-    hwList.querySelectorAll('.hw-item').forEach(el => el.classList.remove('hw-drag-over'));
-    _draggedHwId = null;
-  });
-  item.addEventListener('dragover', e => {
-    e.preventDefault();
-    if (_draggedHwId === hw.id) return;
-    hwList.querySelectorAll('.hw-item').forEach(el => el.classList.remove('hw-drag-over'));
-    item.classList.add('hw-drag-over');
-  });
-  item.addEventListener('dragleave', e => {
-    if (!item.contains(e.relatedTarget)) item.classList.remove('hw-drag-over');
-  });
-  item.addEventListener('drop', async e => {
-    e.preventDefault();
-    item.classList.remove('hw-drag-over');
-    if (!_draggedHwId || _draggedHwId === hw.id) return;
-    await commitHwReorder(hwList, _draggedHwId, hw.id);
-  });
-
-  // Mobile: long-press touch drag
-  let touchTimer = null;
-  let touchActive = false;
-  let touchClone = null;
-  let touchOffX = 0, touchOffY = 0;
-
-  item.addEventListener('touchstart', e => {
-    const touch = e.touches[0];
-    touchTimer = setTimeout(() => {
-      touchActive = true;
-      _draggedHwId = hw.id;
-      item.classList.add('hw-dragging');
-      if (navigator.vibrate) navigator.vibrate(50);
-      const rect = item.getBoundingClientRect();
-      touchOffX = touch.clientX - rect.left;
-      touchOffY = touch.clientY - rect.top;
-      touchClone = item.cloneNode(true);
-      touchClone.className = 'hw-item hw-drag-clone';
-      touchClone.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;z-index:9999;pointer-events:none;opacity:.85;box-shadow:0 8px 24px rgba(0,0,0,.18);border-radius:8px;`;
-      document.body.appendChild(touchClone);
-    }, 300);
-  }, { passive: true });
-
-  item.addEventListener('touchmove', e => {
-    if (!touchActive) { clearTimeout(touchTimer); return; }
-    e.preventDefault();
-    const touch = e.touches[0];
-    if (touchClone) {
-      touchClone.style.left = `${touch.clientX - touchOffX}px`;
-      touchClone.style.top  = `${touch.clientY - touchOffY}px`;
-      touchClone.style.visibility = 'hidden';
-      const el = document.elementFromPoint(touch.clientX, touch.clientY);
-      touchClone.style.visibility = '';
-      const targetItem = el?.closest?.('.hw-item');
-      hwList.querySelectorAll('.hw-item').forEach(el => el.classList.remove('hw-drag-over'));
-      if (targetItem && targetItem !== item && hwList.contains(targetItem)) {
-        targetItem.classList.add('hw-drag-over');
-      }
-    }
-  }, { passive: false });
-
-  const endTouch = async () => {
-    clearTimeout(touchTimer);
-    if (touchClone) { touchClone.remove(); touchClone = null; }
-    item.classList.remove('hw-dragging');
-    if (!touchActive) { touchActive = false; return; }
-    touchActive = false;
-    const dropTarget = hwList.querySelector('.hw-item.hw-drag-over');
-    hwList.querySelectorAll('.hw-item').forEach(el => el.classList.remove('hw-drag-over'));
-    if (dropTarget && _draggedHwId) {
-      const targetHwId = dropTarget.dataset.hwId;
-      if (targetHwId !== _draggedHwId) await commitHwReorder(hwList, _draggedHwId, targetHwId);
-    }
-    _draggedHwId = null;
-  };
-
-  item.addEventListener('touchend',    endTouch, { passive: true });
-  item.addEventListener('touchcancel', endTouch, { passive: true });
-}
-
-async function commitHwReorder(hwList, fromId, toId) {
-  const items   = [...hwList.querySelectorAll('.hw-item')];
-  const ids     = items.map(el => el.dataset.hwId);
-  const fromIdx = ids.indexOf(fromId);
-  const toIdx   = ids.indexOf(toId);
-  if (fromIdx === -1 || toIdx === -1) return;
-
-  ids.splice(fromIdx, 1);
-  ids.splice(toIdx, 0, fromId);
-
-  ids.forEach((id, i) => {
-    const hw = state.homework.find(h => h.id === id);
-    if (hw) hw.order = i;
-  });
-
-  const classId = state.homework.find(h => h.id === fromId)?.classId;
-  if (classId) {
-    const pending = state.homework
-      .filter(h => h.classId === classId && !h.completed)
-      .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
-    hwList.innerHTML = '';
-    pending.forEach(hw => {
-      const newItem = buildHwItem(hw);
-      addHwDragBehavior(newItem, hw, hwList);
-      hwList.appendChild(newItem);
-    });
-  }
-
-  _draggedHwId = null;
-
-  try {
-    await api.homework.reorder(ids);
-  } catch (err) {
-    toast(`Reorder failed: ${err.message}`, 'error');
-  }
 }
 
 /* =============================================================================
@@ -2092,6 +2299,41 @@ function wireEvents() {
     const cb = e.target.closest('.hw-check');
     if (cb) handleMarkComplete(cb.dataset.hwId);
   });
+
+  // Custom context menu — desktop right-click
+  const board = document.getElementById('classes-container');
+  board.addEventListener('contextmenu', e => {
+    const hwItem = e.target.closest('.hw-item');
+    const row    = e.target.closest('.class-row');
+    if (hwItem)   { e.preventDefault(); openContextMenu(e.clientX, e.clientY, 'hw',    hwItem.dataset.hwId); }
+    else if (row) { e.preventDefault(); openContextMenu(e.clientX, e.clientY, 'class', row.dataset.classId); }
+  });
+
+  // Custom context menu — touch long-press (excludes drag handles + controls)
+  let lpTimer = null, lpXY = null;
+  const cancelLP = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
+  board.addEventListener('pointerdown', e => {
+    if (e.pointerType !== 'touch') return;
+    if (e.target.closest('.hw-drag-handle, .class-drag-handle, button, a, input, label')) return;
+    const hwItem = e.target.closest('.hw-item');
+    const row    = e.target.closest('.class-row');
+    const target = hwItem ? ['hw', hwItem.dataset.hwId] : row ? ['class', row.dataset.classId] : null;
+    if (!target) return;
+    lpXY = { x: e.clientX, y: e.clientY };
+    lpTimer = setTimeout(() => {
+      lpTimer = null;
+      if (navigator.vibrate) navigator.vibrate(30);
+      openContextMenu(lpXY.x, lpXY.y, target[0], target[1]);
+      // Swallow the trailing click so the item doesn't also expand/collapse.
+      const swallow = ev => { ev.preventDefault(); ev.stopPropagation(); document.removeEventListener('click', swallow, true); };
+      document.addEventListener('click', swallow, true);
+    }, 500);
+  });
+  board.addEventListener('pointermove', e => {
+    if (lpTimer && lpXY && Math.hypot(e.clientX - lpXY.x, e.clientY - lpXY.y) > 8) cancelLP();
+  });
+  board.addEventListener('pointerup',     cancelLP);
+  board.addEventListener('pointercancel', cancelLP);
   document.getElementById('classes-container').addEventListener('click', e => {
     const editBtn  = e.target.closest('.hw-edit-btn');
     const delBtn   = e.target.closest('.hw-delete');
@@ -2104,9 +2346,9 @@ function wireEvents() {
     const attachImg = e.target.closest('.hw-attach-img');
     if (attachImg) { openLightbox(attachImg.dataset.lightbox); return; }
 
-    // Toggle topic collapse (click anywhere on header except + Add)
+    // Toggle topic collapse (click anywhere on header except + Add / drag handle)
     const header = e.target.closest('.class-header');
-    if (header) {
+    if (header && !e.target.closest('.class-drag-handle')) {
       const row = header.closest('.class-row');
       const collapsed = row.classList.toggle('class-row--collapsed');
       const toggleBtn = header.querySelector('.class-toggle-btn');

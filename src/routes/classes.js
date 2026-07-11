@@ -47,12 +47,13 @@ router.post('/', async (req, res) => {
 });
 
 router.put('/:id', async (req, res) => {
-  const { name, color, teacher, room, period } = req.body;
+  const { name, color, teacher, room, period, tabId } = req.body;
   try {
     const ref    = doc(req.uid, req.params.id);
     const update = {};
     if (name    !== undefined) update.name    = name;
     if (color   !== undefined) update.color   = color;
+    if (tabId   !== undefined) update.tabId   = tabId;
     if (teacher !== undefined) update.teacher = teacher || FieldValue.delete();
     if (room    !== undefined) update.room    = room    || FieldValue.delete();
     if (period  !== undefined) update.period  = period  || FieldValue.delete();
