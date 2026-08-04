@@ -10,6 +10,15 @@ const auth    = firebase.auth();
 const storage = firebase.storage();
 const db      = firebase.firestore();
 const FieldValue = firebase.firestore.FieldValue;
+
+// Safari (and some proxies/VPNs) fail the WebChannel streaming transport with a
+// CORS "access control checks" error, so force long polling. Must run before any
+// Firestore call. Costs nothing here — every read is a one-shot get(), no listeners.
+db.settings({
+  experimentalForceLongPolling:      true,
+  experimentalAutoDetectLongPolling: false,
+  merge:                             true
+});
 let currentUser = null;
 
 let formAttachments = []; // { id, name, type, localUrl, url, storagePath, uploading, error }
