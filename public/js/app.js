@@ -1,13 +1,15 @@
 'use strict';
 
 /* =============================================================================
-   FIREBASE AUTH — compat SDK (loaded via <script> tags)
+   FIREBASE — auth, firestore, storage; compat SDK (loaded via <script> tags)
    jkl2
    ============================================================================= */
 firebase.initializeApp(window.FIREBASE_CONFIG);
 
 const auth    = firebase.auth();
 const storage = firebase.storage();
+const db      = firebase.firestore();
+const FieldValue = firebase.firestore.FieldValue;
 let currentUser = null;
 
 let formAttachments = []; // { id, name, type, localUrl, url, storagePath, uploading, error }
@@ -33,29 +35,191 @@ async function apiFetch(method, path, body) {
 }
 
 /* =============================================================================
-   API LAYER
+   FIRESTORE HELPERS
+   Tabs, classes and homework talk to Firestore directly through the client SDK
+   instead of the /api Cloud Functions backend, which is unavailable on the
+   Spark plan. Access is scoped per-user by firestore.rules.
+   ============================================================================= */
+function requireUid() {
+  const uid = auth.currentUser?.uid;
+  if (!uid) throw new Error('Not signed in');
+  return uid;
+}
+
+const userCol  = name => db.collection('users').doc(requireUid()).collection(name);
+const withId   = snap => ({ id: snap.id, ...snap.data() });
+const readBack = async ref => withId(await ref.get());
+
+// A batch caps out at 500 writes, so commit large deletes/reorders in chunks
+const CHUNK = 450;
+
+async function batchDelete(refs) {
+  for (let i = 0; i < refs.length; i += CHUNK) {
+    const batch = db.batch();
+    refs.slice(i, i + CHUNK).forEach(ref => batch.delete(ref));
+    await batch.commit();
+  }
+}
+
+async function writeOrder(colName, orderedIds) {
+  if (!Array.isArray(orderedIds)) throw new Error('order must be an array of IDs');
+  const col = userCol(colName);
+  for (let i = 0; i < orderedIds.length; i += CHUNK) {
+    const batch = db.batch();
+    orderedIds.slice(i, i + CHUNK).forEach((id, j) => batch.update(col.doc(id), { order: i + j }));
+    await batch.commit();
+  }
+  return { ok: true };
+}
+
+// 'in' accepts at most 10 values per query
+async function homeworkRefsForClasses(classIds) {
+  const refs = [];
+  for (let i = 0; i < classIds.length; i += 10) {
+    const snap = await userCol('homework').where('classId', 'in', classIds.slice(i, i + 10)).get();
+    snap.docs.forEach(d => refs.push(d.ref));
+  }
+  return refs;
+}
+
+// Best-effort: a missing/undeletable file must not block the Firestore write
+async function deleteAttachments(attachments) {
+  const files = (Array.isArray(attachments) ? attachments : []).filter(a => a?.storagePath);
+  if (!files.length) return;
+  await Promise.allSettled(files.map(a => storage.ref(a.storagePath).delete()));
+}
+
+/* =============================================================================
+   DATA LAYER
    ============================================================================= */
 const api = {
   tabs: {
-    list()              { return apiFetch('GET',    '/api/tabs'); },
-    create(body)        { return apiFetch('POST',   '/api/tabs', body); },
-    update(id, body)    { return apiFetch('PUT',    `/api/tabs/${id}`, body); },
-    remove(id)          { return apiFetch('DELETE', `/api/tabs/${id}`); },
-    reorder(orderedIds) { return apiFetch('POST',   '/api/tabs/reorder', { order: orderedIds }); }
+    async list() {
+      const snap = await userCol('tabs').get();
+      return snap.docs.map(withId).sort((a, b) => {
+        if (a.order != null && b.order != null) return a.order - b.order;
+        if (a.order != null) return -1;
+        if (b.order != null) return 1;
+        return (a.createdAt?.seconds ?? 0) - (b.createdAt?.seconds ?? 0);
+      });
+    },
+    async create({ name }) {
+      if (!name?.trim()) throw new Error('name is required');
+      const ref = await userCol('tabs').add({
+        name:      name.trim(),
+        type:      'custom',
+        createdAt: FieldValue.serverTimestamp()
+      });
+      return { id: ref.id, name: name.trim(), type: 'custom' };
+    },
+    async update(id, { name }) {
+      const ref = userCol('tabs').doc(id);
+      await ref.update({ name });
+      return readBack(ref);
+    },
+    async remove(id) {
+      const clsSnap = await userCol('classes').where('tabId', '==', id).get();
+      const hwRefs  = await homeworkRefsForClasses(clsSnap.docs.map(d => d.id));
+      await batchDelete([userCol('tabs').doc(id), ...clsSnap.docs.map(d => d.ref), ...hwRefs]);
+      return { ok: true };
+    },
+    reorder(orderedIds) { return writeOrder('tabs', orderedIds); }
   },
+
   classes: {
-    list()              { return apiFetch('GET',    '/api/classes'); },
-    create(body)        { return apiFetch('POST',   '/api/classes', body); },
-    update(id, body)    { return apiFetch('PUT',    `/api/classes/${id}`, body); },
-    remove(id)          { return apiFetch('DELETE', `/api/classes/${id}`); },
-    reorder(orderedIds) { return apiFetch('POST',   '/api/classes/reorder', { order: orderedIds }); }
+    async list() {
+      const snap = await userCol('classes').get();
+      return snap.docs.map(withId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    },
+    async create({ name, color, teacher, room, period, tabId }) {
+      if (!name?.trim()) throw new Error('name is required');
+      const data = {
+        tabId:     tabId || 'classes',
+        name:      name.trim(),
+        color:     color || '#3b82f6',
+        order:     Date.now(),
+        createdAt: FieldValue.serverTimestamp()
+      };
+      if (teacher) data.teacher = teacher;
+      if (room)    data.room    = room;
+      if (period)  data.period  = period;
+      return readBack(await userCol('classes').add(data));
+    },
+    async update(id, { name, color, teacher, room, period }) {
+      const ref    = userCol('classes').doc(id);
+      const update = {};
+      if (name    !== undefined) update.name    = name;
+      if (color   !== undefined) update.color   = color;
+      if (teacher !== undefined) update.teacher = teacher || FieldValue.delete();
+      if (room    !== undefined) update.room    = room    || FieldValue.delete();
+      if (period  !== undefined) update.period  = period  || FieldValue.delete();
+      if (Object.keys(update).length) await ref.update(update);
+      return readBack(ref);
+    },
+    async remove(id) {
+      const hwSnap = await userCol('homework').where('classId', '==', id).get();
+      await batchDelete([userCol('classes').doc(id), ...hwSnap.docs.map(d => d.ref)]);
+      return { ok: true };
+    },
+    reorder(orderedIds) { return writeOrder('classes', orderedIds); }
   },
+
   homework: {
-    list()              { return apiFetch('GET',    '/api/homework'); },
-    create(body)        { return apiFetch('POST',   '/api/homework', body); },
-    update(id, body)    { return apiFetch('PUT',    `/api/homework/${id}`, body); },
-    remove(id)          { return apiFetch('DELETE', `/api/homework/${id}`); },
-    reorder(orderedIds) { return apiFetch('POST',   '/api/homework/reorder', { order: orderedIds }); }
+    async list(classId) {
+      let query = userCol('homework');
+      if (classId) query = query.where('classId', '==', classId);
+      const snap = await query.get();
+      return snap.docs.map(withId);
+    },
+    async create({ classId, description, notes, deadline, deadlineTime, deadlineMs, remindBefore, attachments }) {
+      if (!classId || !description?.trim()) throw new Error('classId and description are required');
+      const data = {
+        classId,
+        description: description.trim(),
+        completed:   false,
+        createdAt:   FieldValue.serverTimestamp()
+      };
+      if (notes)        data.notes        = notes;
+      if (deadline)     data.deadline     = deadline;
+      if (deadlineTime) data.deadlineTime = deadlineTime;
+      if (remindBefore !== undefined && remindBefore !== null) data.remindBefore = remindBefore;
+      if (deadlineMs != null) data.deadlineMs = deadlineMs;
+      if (Array.isArray(attachments) && attachments.length) data.attachments = attachments;
+      return readBack(await userCol('homework').add(data));
+    },
+    async update(id, { description, notes, deadline, deadlineTime, deadlineMs, completed, remindBefore, attachments }) {
+      const ref      = userCol('homework').doc(id);
+      const existing = (await ref.get()).data() || {};
+      const update   = {};
+      if (description  !== undefined) update.description  = description;
+      if (notes        !== undefined) update.notes        = notes;
+      if (deadline     !== undefined) update.deadline     = deadline;
+      if (deadlineTime !== undefined) update.deadlineTime = deadlineTime;
+      if (completed    !== undefined) {
+        update.completed   = completed;
+        update.completedAt = completed ? FieldValue.serverTimestamp() : null;
+        if (completed && !existing.completed && existing.attachments?.length) {
+          await deleteAttachments(existing.attachments);
+          update.attachments = [];
+        }
+      }
+      if (remindBefore !== undefined) update.remindBefore = remindBefore;
+      if (deadlineMs   !== undefined) update.deadlineMs   = deadlineMs;
+      if (attachments  !== undefined) update.attachments  = Array.isArray(attachments) ? attachments : [];
+      if ((deadline     !== undefined && deadline     !== existing.deadline) ||
+          (deadlineTime !== undefined && deadlineTime !== existing.deadlineTime)) {
+        update.remindedAt = null;
+      }
+      if (Object.keys(update).length) await ref.update(update);
+      return readBack(ref);
+    },
+    async remove(id) {
+      const ref = userCol('homework').doc(id);
+      await deleteAttachments((await ref.get()).data()?.attachments);
+      await ref.delete();
+      return { ok: true };
+    },
+    reorder(orderedIds) { return writeOrder('homework', orderedIds); }
   }
 };
 
