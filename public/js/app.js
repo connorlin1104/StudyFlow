@@ -1963,16 +1963,12 @@ async function handleDeleteClass(classId) {
   const cls   = state.classes.find(c => c.id === classId);
   if (!cls) return;
   const clsHw = state.homework.filter(h => h.classId === classId);
-  // Completed assignments stay in Firestore but are hidden from the board, so a
-  // bare total reads as though the app invented assignments out of nowhere.
-  // Count the two separately and say which is which.
-  const active = clsHw.filter(h => !h.completed).length;
-  const done   = clsHw.length - active;
-  const s      = n => n === 1 ? '' : 's';
-  const clsSubMsg =
-      active && done ? `This will also delete ${active} assignment${s(active)}, plus ${done} completed one${s(done)} hidden from view.`
-    : active         ? `This will also delete ${active} assignment${s(active)}.`
-    : done           ? `This will also delete ${done} completed assignment${s(done)} hidden from view.`
+  // Count only what's actually on the board. Completed assignments get deleted
+  // too, but they're hidden from every view, so naming them here only raises
+  // questions about assignments the user has no way to go and look at.
+  const active    = clsHw.filter(h => !h.completed).length;
+  const clsSubMsg = active
+    ? `This will also delete ${active} assignment${active === 1 ? '' : 's'}.`
     : '';
   const label = tabItemLabel(cls.tabId);
   if (!await showConfirm({ title: `Delete "${cls.name}"?`, message: clsSubMsg, confirmText: `Delete ${label}`, icon: '🗑️' })) return;
