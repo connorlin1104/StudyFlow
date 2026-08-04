@@ -195,14 +195,18 @@ const api = {
       const snap = await query.get();
       return snap.docs.map(withId);
     },
-    async create({ classId, description, notes, deadline, deadlineTime, deadlineMs, remindBefore, attachments }) {
+    // `completed`/`completedAt` are accepted so undoing a delete restores an
+    // assignment in the state it was deleted in, rather than resurrecting it
+    // as active. They default to a fresh, incomplete assignment.
+    async create({ classId, description, notes, deadline, deadlineTime, deadlineMs, remindBefore, attachments, completed, completedAt }) {
       if (!classId || !description?.trim()) throw new Error('classId and description are required');
       const data = {
         classId,
         description: description.trim(),
-        completed:   false,
+        completed:   !!completed,
         createdAt:   FieldValue.serverTimestamp()
       };
+      if (completed) data.completedAt = completedAt ?? FieldValue.serverTimestamp();
       if (notes)        data.notes        = notes;
       if (deadline)     data.deadline     = deadline;
       if (deadlineTime) data.deadlineTime = deadlineTime;
@@ -1931,7 +1935,9 @@ async function handleDeleteHw(hwId) {
     renderSummary();
     toast(`Deleted "${hw.description}"`, 'info');
 
-    const { id: _id, createdAt: _ca, completed: _co, attachments: _att, ...restoreFields } = hw;
+    // Attachments are already gone from Storage, so they can't come back — but
+    // `completed` has to survive, or undo puts finished work back on the board.
+    const { id: _id, createdAt: _ca, attachments: _att, ...restoreFields } = hw;
     const action = {
       restoredId: null,
       async undo() {
@@ -1957,21 +1963,31 @@ async function handleDeleteClass(classId) {
   const cls   = state.classes.find(c => c.id === classId);
   if (!cls) return;
   const clsHw = state.homework.filter(h => h.classId === classId);
-  const clsSubMsg = clsHw.length
-    ? `This will also delete ${clsHw.length} assignment${clsHw.length !== 1 ? 's' : ''}.`
+  // Completed assignments stay in Firestore but are hidden from the board, so a
+  // bare total reads as though the app invented assignments out of nowhere.
+  // Count the two separately and say which is which.
+  const active = clsHw.filter(h => !h.completed).length;
+  const done   = clsHw.length - active;
+  const s      = n => n === 1 ? '' : 's';
+  const clsSubMsg =
+      active && done ? `This will also delete ${active} assignment${s(active)}, plus ${done} completed one${s(done)} hidden from view.`
+    : active         ? `This will also delete ${active} assignment${s(active)}.`
+    : done           ? `This will also delete ${done} completed assignment${s(done)} hidden from view.`
     : '';
-  if (!await showConfirm({ title: `Delete "${cls.name}"?`, message: clsSubMsg, confirmText: 'Delete Topic', icon: '🗑️' })) return;
+  const label = tabItemLabel(cls.tabId);
+  if (!await showConfirm({ title: `Delete "${cls.name}"?`, message: clsSubMsg, confirmText: `Delete ${label}`, icon: '🗑️' })) return;
 
   try {
     await api.classes.remove(classId);
     state.classes  = state.classes.filter(c => c.id !== classId);
     state.homework = state.homework.filter(h => h.classId !== classId);
     renderSettingsClassList(); renderSchedule(); renderSummary();
-    const clsLabel = tabItemLabel(cls.tabId);
-    toast(`Deleted ${clsLabel} "${cls.name}"`, 'info');
+    toast(`Deleted ${label} "${cls.name}"`, 'info');
 
     const { id: _id, createdAt: _ca, ...clsFields } = cls;
-    const hwSnaps = clsHw.map(({ id: _i, classId: _c, createdAt: _c2, completed: _co, ...f }) => f);
+    // Keep `completed`/`completedAt`: dropping them resurrected every completed
+    // assignment as active, dumping old work back onto the board on undo.
+    const hwSnaps = clsHw.map(({ id: _i, classId: _c, createdAt: _c2, ...f }) => f);
     const action = {
       restoredClassId: null,
       async undo() {
@@ -1981,7 +1997,7 @@ async function handleDeleteClass(classId) {
         const restoredHw = await Promise.all(hwSnaps.map(f => api.homework.create({ ...f, classId: restored.id })));
         state.homework.push(...restoredHw);
         renderSettingsClassList(); renderSchedule(); renderSummary();
-        toast(`Restored ${clsLabel} "${cls.name}"`, 'success');
+        toast(`Restored ${label} "${cls.name}"`, 'success');
       },
       async redo() {
         if (!this.restoredClassId) return;
@@ -1989,7 +2005,7 @@ async function handleDeleteClass(classId) {
         state.classes  = state.classes.filter(c => c.id !== this.restoredClassId);
         state.homework = state.homework.filter(h => h.classId !== this.restoredClassId);
         renderSettingsClassList(); renderSchedule(); renderSummary();
-        toast(`Deleted ${clsLabel} "${cls.name}"`, 'info');
+        toast(`Deleted ${label} "${cls.name}"`, 'info');
       }
     };
     history.push(action);
@@ -2757,6 +2773,8 @@ async function init() {
         if (el) el.value = String(r.notifyBefore);
       }
     }).catch(() => {});
+
+    pruneOldCompleted();   // housekeeping; deliberately not awaited
   } catch (err) {
     toast(`Failed to load data: ${err.message}`, 'error');
     console.error(err);
@@ -2766,6 +2784,49 @@ async function init() {
         <span style="font-size:0.85rem;color:#64748b;">${err.message}</span><br><br>
         <button class="btn btn-secondary" onclick="location.reload()">Retry</button>
       </div>`;
+  }
+}
+
+/* =============================================================================
+   PRUNE OLD COMPLETED ASSIGNMENTS
+   A scheduled Cloud Function used to delete completed assignments 30 days after
+   completion. It died with the move to the Spark plan, so they accumulated
+   invisibly — hidden from the board, but still real documents that showed up in
+   the "this will also delete N assignments" count. This restores that policy on
+   the client. It runs against already-loaded state, so it costs no extra reads.
+   ============================================================================= */
+const COMPLETED_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+async function pruneOldCompleted() {
+  const done = state.homework.filter(h => h.completed);
+  if (!done.length) return;
+
+  const cutoff = Date.now() - COMPLETED_TTL_MS;
+  const stale  = done.filter(h => h.completedAt?.seconds && h.completedAt.seconds * 1000 <= cutoff);
+  // Assignments completed before completedAt was recorded have no age, so they
+  // would never expire. Stamp them instead of guessing: they age out 30 days
+  // from now rather than being deleted on a date we can't actually establish.
+  const undated = done.filter(h => !h.completedAt?.seconds);
+
+  try {
+    if (undated.length) {
+      await Promise.all(undated.map(h => api.homework.update(h.id, { completed: true })));
+    }
+    if (!stale.length) return;
+
+    // Completing an assignment already clears its attachments, but documents
+    // predating that behaviour may still be holding files in Storage.
+    await Promise.all(stale.filter(h => h.attachments?.length)
+                           .map(h => deleteAttachments(h.attachments)));
+    await batchDelete(stale.map(h => userCol('homework').doc(h.id)));
+
+    const gone = new Set(stale.map(h => h.id));
+    state.homework = state.homework.filter(h => !gone.has(h.id));
+    renderSummary();
+    toast(`Cleaned up ${stale.length} completed assignment${stale.length === 1 ? '' : 's'} older than 30 days`, 'info');
+  } catch (err) {
+    // Never block startup over housekeeping — it'll try again next load
+    console.warn('Prune of old completed assignments failed:', err);
   }
 }
 

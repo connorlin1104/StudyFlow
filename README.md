@@ -96,8 +96,10 @@ Firestore rules ensure users can only read and write their own documents.
 - **Push notifications don't send.** Subscriptions and the `notifyBefore`
   preference still save to Firestore, but the scheduled function that delivered
   them required Blaze. The UI will report success and nothing will arrive.
-- **Nothing prunes old completed assignments.** The scheduled `cleanup` sweep
-  went away with the Functions backend.
+- **Completed assignments are pruned in the browser, not on a schedule.** The
+  scheduled `cleanup` sweep went away with the Functions backend, so
+  `pruneOldCompleted()` in `app.js` re-applies the same 30-day policy on load.
+  It only runs while someone has the app open — a dormant account never prunes.
 - **Cascading deletes run in the browser.** Deleting a space deletes its groups
   and their assignments client-side; closing the tab mid-delete can orphan
   documents.
