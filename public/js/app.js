@@ -2,7 +2,6 @@
 
 /* =============================================================================
    FIREBASE — auth, firestore, storage; compat SDK (loaded via <script> tags)
-   jkl2
    ============================================================================= */
 firebase.initializeApp(window.FIREBASE_CONFIG);
 
@@ -50,13 +49,45 @@ async function batchDelete(refs) {
   }
 }
 
-async function writeOrder(colName, orderedIds) {
+/* Persist a reorder — and optionally the moved doc's new parent (an assignment's
+   classId, a group's tabId) — in the same batch, so a failure mid-flight can't
+   strand an item in its new parent carrying a stale order.
+
+   `prevOrders` (Map of id → the order the doc currently has) skips docs already
+   sitting at the right index. Without it, dropping an item into a 20-assignment
+   group costs 20 writes against the Spark plan's daily cap instead of the two
+   that actually moved. */
+async function writeOrder(colName, orderedIds, { prevOrders, moved } = {}) {
   if (!Array.isArray(orderedIds)) throw new Error('order must be an array of IDs');
   const col = userCol(colName);
-  for (let i = 0; i < orderedIds.length; i += CHUNK) {
+
+  const writes = [];
+  orderedIds.forEach((id, i) => {
+    const data = {};
+    if (!prevOrders || prevOrders.get(id) !== i) data.order = i;
+    if (moved && moved.id === id) Object.assign(data, moved.data);
+    if (Object.keys(data).length) writes.push({ id, ref: col.doc(id), data });
+  });
+  // A parent change must never be dropped just because that doc's order is unchanged
+  if (moved && !writes.some(w => w.id === moved.id)) {
+    writes.push({ id: moved.id, ref: col.doc(moved.id), data: { ...moved.data } });
+  }
+
+  for (let i = 0; i < writes.length; i += CHUNK) {
+    const slice = writes.slice(i, i + CHUNK);
     const batch = db.batch();
-    orderedIds.slice(i, i + CHUNK).forEach((id, j) => batch.update(col.doc(id), { order: i + j }));
-    await batch.commit();
+    slice.forEach(w => batch.update(w.ref, w.data));
+    try {
+      await batch.commit();
+    } catch (err) {
+      // A single doc deleted on another device fails the whole batch. Retry the
+      // slice one write at a time so the survivors still land, and only surface
+      // the error if the doc the user actually moved is the one that failed.
+      const results = await Promise.allSettled(slice.map(w => w.ref.update(w.data)));
+      const idx = moved ? slice.findIndex(w => w.id === moved.id) : -1;
+      if (idx !== -1 && results[idx].status === 'rejected') throw results[idx].reason;
+      if (idx === -1 && results.every(r => r.status === 'rejected')) throw err;
+    }
   }
   return { ok: true };
 }
@@ -115,7 +146,7 @@ const api = {
       await batchDelete([userCol('tabs').doc(id), ...clsSnap.docs.map(d => d.ref), ...hwRefs]);
       return { ok: true };
     },
-    reorder(orderedIds) { return writeOrder('tabs', orderedIds); }
+    reorder(orderedIds, opts) { return writeOrder('tabs', orderedIds, opts); }
   },
 
   classes: {
@@ -154,7 +185,7 @@ const api = {
       await batchDelete([userCol('classes').doc(id), ...hwSnap.docs.map(d => d.ref)]);
       return { ok: true };
     },
-    reorder(orderedIds) { return writeOrder('classes', orderedIds); }
+    reorder(orderedIds, opts) { return writeOrder('classes', orderedIds, opts); }
   },
 
   homework: {
@@ -213,7 +244,7 @@ const api = {
       await ref.delete();
       return { ok: true };
     },
-    reorder(orderedIds) { return writeOrder('homework', orderedIds); }
+    reorder(orderedIds, opts) { return writeOrder('homework', orderedIds, opts); }
   },
 
   // notifyBefore is shared across devices: one userPrefs doc per user, mirrored
@@ -796,7 +827,8 @@ function commitDrop(type, id, under) {
 async function moveHw(id, targetClassId, beforeId) {
   const hw = state.homework.find(h => h.id === id);
   if (!hw || !targetClassId) return;
-  const prevClassId = hw.classId;
+  const prevClassId    = hw.classId;
+  const prevActiveTab  = state.activeTabId;
   hw.classId = targetClassId;
 
   const pending = state.homework
@@ -804,6 +836,8 @@ async function moveHw(id, targetClassId, beforeId) {
     .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
   const idx = beforeId ? pending.findIndex(h => h.id === beforeId) : -1;
   if (idx === -1) pending.push(hw); else pending.splice(idx, 0, hw);
+  // Snapshot before renumbering, so the write can skip whatever didn't move
+  const prevOrders = new Map(pending.map(h => [h.id, h.order]));
   pending.forEach((h, i) => { h.order = i; });
 
   let tabChanged = false;
@@ -818,9 +852,21 @@ async function moveHw(id, targetClassId, beforeId) {
   renderSummary();
 
   try {
-    if (prevClassId !== targetClassId) await api.homework.update(id, { classId: targetClassId });
-    await api.homework.reorder(pending.map(h => h.id));
+    await api.homework.reorder(pending.map(h => h.id), {
+      prevOrders,
+      moved: prevClassId !== targetClassId ? { id, data: { classId: targetClassId } } : null
+    });
   } catch (err) {
+    // Put the UI back. A move that's visible but unsaved is worse than no move:
+    // the next drag would persist the phantom layout as if it were real.
+    hw.classId = prevClassId;
+    prevOrders.forEach((order, hid) => {
+      const h = state.homework.find(x => x.id === hid);
+      if (h) h.order = order;
+    });
+    if (tabChanged) { state.activeTabId = prevActiveTab; renderTabBar(); }
+    renderSchedule();
+    renderSummary();
     toast(`Move failed: ${err.message}`, 'error');
   }
 }
@@ -829,7 +875,8 @@ async function moveHw(id, targetClassId, beforeId) {
 async function moveClass(id, targetTabId, beforeId) {
   const cls = state.classes.find(c => c.id === id);
   if (!cls || !targetTabId) return;
-  const prevTabId = cls.tabId;
+  const prevTabId  = cls.tabId;
+  const prevClasses = state.classes.slice();
   cls.tabId = targetTabId;
 
   const group = state.classes
@@ -837,6 +884,8 @@ async function moveClass(id, targetTabId, beforeId) {
     .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
   const idx = beforeId ? group.findIndex(c => c.id === beforeId) : -1;
   if (idx === -1) group.push(cls); else group.splice(idx, 0, cls);
+  // Snapshot before renumbering, so the write can skip whatever didn't move
+  const prevOrders = new Map(group.map(c => [c.id, c.order]));
   group.forEach((c, i) => { c.order = i; });
 
   // Rebuild the array so display order (which renderSchedule reads positionally)
@@ -847,9 +896,19 @@ async function moveClass(id, targetTabId, beforeId) {
   renderSchedule();
 
   try {
-    if (prevTabId !== targetTabId) await api.classes.update(id, { tabId: targetTabId });
-    await api.classes.reorder(group.map(c => c.id));
+    await api.classes.reorder(group.map(c => c.id), {
+      prevOrders,
+      moved: prevTabId !== targetTabId ? { id, data: { tabId: targetTabId } } : null
+    });
   } catch (err) {
+    // Put the UI back — see moveHw for why a visible-but-unsaved move is dangerous.
+    cls.tabId = prevTabId;
+    prevOrders.forEach((order, cid) => {
+      const c = prevClasses.find(x => x.id === cid);
+      if (c) c.order = order;
+    });
+    state.classes = prevClasses;
+    renderSchedule();
     toast(`Move failed: ${err.message}`, 'error');
   }
 }
@@ -1242,12 +1301,22 @@ function renderSettingsTabsList() {
       const [moved] = tabs.splice(fromIdx, 1);
       tabs.splice(toIdx, 0, moved);
 
+      const prevTabs   = state.tabs;
+      const prevOrders = new Map(tabs.map(t => [t.id, t.order]));
+      tabs.forEach((t, i) => { t.order = i; });
       state.tabs = tabs;
       try {
-        await api.tabs.reorder(tabs.map(t => t.id));
+        await api.tabs.reorder(tabs.map(t => t.id), { prevOrders });
         renderSettingsTabsList();
         renderTabBar();
       } catch (err) {
+        prevOrders.forEach((order, id) => {
+          const t = tabs.find(x => x.id === id);
+          if (t) t.order = order;
+        });
+        state.tabs = prevTabs;
+        renderSettingsTabsList();
+        renderTabBar();
         toast(`Reorder failed: ${err.message}`, 'error');
       }
     });
@@ -1332,12 +1401,22 @@ function renderSettingsClassList() {
       const [moved] = tabClasses.splice(fromIdx, 1);
       tabClasses.splice(toIdx, 0, moved);
 
+      const prevClasses = state.classes;
+      const prevOrders  = new Map(tabClasses.map(c => [c.id, c.order]));
+      tabClasses.forEach((c, i) => { c.order = i; });
       state.classes = [...state.classes.filter(c => c.tabId !== tabId), ...tabClasses];
       try {
-        await api.classes.reorder(tabClasses.map(c => c.id));
+        await api.classes.reorder(tabClasses.map(c => c.id), { prevOrders });
         renderSettingsClassList();
         renderSchedule();
       } catch (err) {
+        prevOrders.forEach((order, id) => {
+          const c = tabClasses.find(x => x.id === id);
+          if (c) c.order = order;
+        });
+        state.classes = prevClasses;
+        renderSettingsClassList();
+        renderSchedule();
         toast(`Reorder failed: ${err.message}`, 'error');
       }
     });
@@ -2662,6 +2741,7 @@ async function init() {
     state.tabs     = tabs;
     state.classes  = classes;
     state.homework = homework;
+    _lastRefresh   = Date.now();
     if (!state.activeTabId || !tabs.find(t => t.id === state.activeTabId)) {
       state.activeTabId = tabs[0]?.id ?? null;
     }
@@ -2688,6 +2768,55 @@ async function init() {
       </div>`;
   }
 }
+
+/* =============================================================================
+   REFRESH ON FOCUS
+   Nothing here uses snapshot listeners — every read is a one-shot get() — so an
+   edit made on another device stays invisible until we re-read. That's not just
+   a display problem: a stale list gets written back wholesale by the next
+   drag-to-reorder, silently undoing the other device's work. Re-reading when the
+   tab regains focus covers the realistic case (phone, then back to the laptop).
+   ============================================================================= */
+// Each refresh re-reads every doc, and Spark allows 50k reads/day, so rate-limit
+// it. A minute is plenty — nobody switches phone → laptop faster than that.
+const REFRESH_MIN_GAP_MS = 60_000;
+let _lastRefresh = 0;
+let _refreshing  = false;
+
+async function refreshFromServer() {
+  if (_refreshing || !auth.currentUser || !_appBooted) return;
+  if (Date.now() - _lastRefresh < REFRESH_MIN_GAP_MS) return;
+  // Never yank the data out from under an in-flight drag or a half-filled form
+  if (document.body.classList.contains('is-dragging')) return;
+  if (document.querySelector('.modal--open')) return;
+
+  _refreshing = true;
+  try {
+    const [tabs, classes, homework] = await Promise.all([
+      api.tabs.list(), api.classes.list(), api.homework.list()
+    ]);
+    _lastRefresh   = Date.now();
+    state.tabs     = tabs;
+    state.classes  = classes;
+    state.homework = homework;
+    if (!state.activeTabId || !tabs.find(t => t.id === state.activeTabId)) {
+      state.activeTabId = tabs[0]?.id ?? null;
+    }
+    renderTabBar();
+    renderSchedule();
+    renderSummary();
+  } catch (err) {
+    // Stay quiet: this is background work and the stale view still functions
+    console.warn('Background refresh failed:', err);
+  } finally {
+    _refreshing = false;
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') refreshFromServer();
+});
+window.addEventListener('focus', refreshFromServer);
 
 /* =============================================================================
    AUTH GATE — wait for Firebase to restore session before doing anything
