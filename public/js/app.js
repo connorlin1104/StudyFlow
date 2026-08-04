@@ -15,26 +15,6 @@ let currentUser = null;
 let formAttachments = []; // { id, name, type, localUrl, url, storagePath, uploading, error }
 
 /* =============================================================================
-   API HELPER — sends Firebase ID token with every request
-   ============================================================================= */
-async function apiFetch(method, path, body) {
-  const token = await auth.currentUser?.getIdToken();
-  const res   = await fetch(path, {
-    method,
-    headers: {
-      'Content-Type':  'application/json',
-      'Authorization': `Bearer ${token}`
-    },
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {})
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || res.statusText);
-  }
-  return res.json();
-}
-
-/* =============================================================================
    FIRESTORE HELPERS
    Tabs, classes and homework talk to Firestore directly through the client SDK
    instead of the /api Cloud Functions backend, which is unavailable on the
@@ -81,6 +61,9 @@ async function homeworkRefsForClasses(classIds) {
   }
   return refs;
 }
+
+// Rules only permit reading push subscriptions filtered by the owner's uid
+const subsFor = uid => db.collection('pushSubscriptions').where('uid', '==', uid);
 
 // Best-effort: a missing/undeletable file must not block the Firestore write
 async function deleteAttachments(attachments) {
@@ -145,11 +128,12 @@ const api = {
       if (period)  data.period  = period;
       return readBack(await userCol('classes').add(data));
     },
-    async update(id, { name, color, teacher, room, period }) {
+    async update(id, { name, color, teacher, room, period, tabId }) {
       const ref    = userCol('classes').doc(id);
       const update = {};
       if (name    !== undefined) update.name    = name;
       if (color   !== undefined) update.color   = color;
+      if (tabId   !== undefined) update.tabId   = tabId;
       if (teacher !== undefined) update.teacher = teacher || FieldValue.delete();
       if (room    !== undefined) update.room    = room    || FieldValue.delete();
       if (period  !== undefined) update.period  = period  || FieldValue.delete();
@@ -187,10 +171,11 @@ const api = {
       if (Array.isArray(attachments) && attachments.length) data.attachments = attachments;
       return readBack(await userCol('homework').add(data));
     },
-    async update(id, { description, notes, deadline, deadlineTime, deadlineMs, completed, remindBefore, attachments }) {
+    async update(id, { classId, description, notes, deadline, deadlineTime, deadlineMs, completed, remindBefore, attachments }) {
       const ref      = userCol('homework').doc(id);
       const existing = (await ref.get()).data() || {};
       const update   = {};
+      if (classId      !== undefined) update.classId      = classId;
       if (description  !== undefined) update.description  = description;
       if (notes        !== undefined) update.notes        = notes;
       if (deadline     !== undefined) update.deadline     = deadline;
@@ -220,6 +205,51 @@ const api = {
       return { ok: true };
     },
     reorder(orderedIds) { return writeOrder('homework', orderedIds); }
+  },
+
+  // notifyBefore is shared across devices: one userPrefs doc per user, mirrored
+  // onto every push subscription. Both live outside users/{uid}, so they have
+  // their own rules in firestore.rules.
+  notifications: {
+    async getPrefs() {
+      const uid = requireUid();
+      const doc = await db.collection('userPrefs').doc(uid).get();
+      if (doc.exists && doc.data().notifyBefore != null) return { notifyBefore: doc.data().notifyBefore };
+      // Migration fallback: read from the first subscription
+      const snap = await subsFor(uid).limit(1).get();
+      return { notifyBefore: snap.empty ? 60 : (snap.docs[0].data().notifyBefore ?? 60) };
+    },
+    async setPrefs(notifyBefore) {
+      if (notifyBefore == null) throw new Error('notifyBefore required');
+      const uid = requireUid();
+      await db.collection('userPrefs').doc(uid).set({ notifyBefore }, { merge: true });
+      const snap = await subsFor(uid).get();
+      await Promise.all(snap.docs.map(d => d.ref.update({ notifyBefore })));
+      return { ok: true };
+    },
+    async subscribe(subscription, notifyBefore) {
+      if (!subscription?.endpoint || !subscription?.keys) throw new Error('subscription object required');
+      const uid  = requireUid();
+      const snap = await subsFor(uid).where('endpoint', '==', subscription.endpoint).limit(1).get();
+      if (!snap.empty) {
+        await snap.docs[0].ref.update({ notifyBefore: notifyBefore ?? 60 });
+        return { id: snap.docs[0].id };
+      }
+      const ref = await db.collection('pushSubscriptions').add({
+        uid,
+        endpoint:     subscription.endpoint,
+        keys:         subscription.keys,
+        notifyBefore: notifyBefore ?? 60,
+        createdAt:    FieldValue.serverTimestamp()
+      });
+      return { id: ref.id };
+    },
+    async unsubscribe(endpoint) {
+      if (!endpoint) throw new Error('endpoint required');
+      const snap = await subsFor(requireUid()).where('endpoint', '==', endpoint).limit(1).get();
+      await Promise.all(snap.docs.map(d => d.ref.delete()));
+      return { ok: true };
+    }
   }
 };
 
@@ -2106,10 +2136,7 @@ async function subscribeToNotifications() {
       applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
     });
     const notifyBefore = prefs.get('notifyBefore', 60);
-    await apiFetch('POST', '/api/notifications/subscribe', {
-      subscription:  sub.toJSON(),
-      notifyBefore
-    });
+    await api.notifications.subscribe(sub.toJSON(), notifyBefore);
     prefs.set('notificationsEnabled', true);
     prefs.set('pushEndpoint', sub.endpoint);
     renderPrefsPage();
@@ -2126,7 +2153,7 @@ async function unsubscribeFromNotifications() {
   try {
     const endpoint = prefs.get('pushEndpoint', null);
     if (endpoint) {
-      await apiFetch('DELETE', '/api/notifications/subscribe', { endpoint });
+      await api.notifications.unsubscribe(endpoint);
     }
     const reg = await navigator.serviceWorker?.ready;
     const sub = await reg?.pushManager?.getSubscription();
@@ -2372,10 +2399,10 @@ function wireEvents() {
   document.getElementById('pref-notify-before').addEventListener('change', async e => {
     const val = parseInt(e.target.value);
     prefs.set('notifyBefore', val);
-    try { await apiFetch('PUT', '/api/notifications/prefs', { notifyBefore: val }); }
+    try { await api.notifications.setPrefs(val); }
     catch (_) {}
   });
-  // TEST BUTTON — uncomment to re-enable
+  // TEST BUTTON — needs the /api Cloud Functions backend (Blaze plan) to send
   // document.getElementById('pref-notify-test-btn').addEventListener('click', async e => {
   //   const btn = e.currentTarget;
   //   btn.disabled = true;
@@ -2633,8 +2660,8 @@ async function init() {
     renderSchedule();
     renderSummary();
 
-    // Sync notifyBefore from server so all devices share one preference
-    apiFetch('GET', '/api/notifications/prefs').then(r => {
+    // Sync notifyBefore from Firestore so all devices share one preference
+    api.notifications.getPrefs().then(r => {
       if (r?.notifyBefore != null && r.notifyBefore !== prefs.get('notifyBefore', 60)) {
         prefs.set('notifyBefore', r.notifyBefore);
         const el = document.getElementById('pref-notify-before');
