@@ -8,9 +8,19 @@ service cloud.firestore {
     match /userPrefs/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
+    // Unlike the two above, ownership lives in the document rather than the
+    // path, so each verb has to read it from the right place. `write` cannot be
+    // used as a shorthand here: it covers create, where `resource` is still null
+    // and dereferencing `resource.data` denies the request outright — which is
+    // exactly what made enabling notifications fail.
     match /pushSubscriptions/{subId} {
-      allow read, write: if request.auth != null && request.auth.uid == resource.data.uid;
+      allow read:   if request.auth != null && request.auth.uid == resource.data.uid;
+      allow delete: if request.auth != null && request.auth.uid == resource.data.uid;
       allow create: if request.auth != null && request.auth.uid == request.resource.data.uid;
+      // Both halves, so a subscription can never be reassigned to another user.
+      allow update: if request.auth != null
+                    && request.auth.uid == resource.data.uid
+                    && request.auth.uid == request.resource.data.uid;
     }
   }
 }
