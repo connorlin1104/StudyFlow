@@ -2191,8 +2191,15 @@ function applyPersonalTemplate() {
 
 /* =============================================================================
    PUSH NOTIFICATIONS
+   This half only registers the subscription; sw.js displays what arrives. The
+   sending half can't live here — it has to run when the browser is closed — so
+   it's a GitHub Actions cron, notifier/send-reminders.js.
+
+   This key must stay in sync with the VAPID_PUBLIC_KEY secret that job signs
+   with. Changing it invalidates every subscription already in Firestore, and
+   each device has to toggle notifications off and back on.
    ============================================================================= */
-const VAPID_PUBLIC_KEY = 'BOrVSBk5blypBLGFYLnlfvkwSX9dxCtvSNISDJIDY89sy2q7mCudoX3WLA94yEp0m-L0ICpnxrk0guyYc2NLld0';
+const VAPID_PUBLIC_KEY = 'BKGl9PmZmTbSavV-2JK3Lh45XxxCkd3un6Gf8eK3hMbCFuvPsQ3wKagCChxP5qy0n6VVmfmtapaeeueImwOdjVY';
 
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -2502,7 +2509,9 @@ function wireEvents() {
     try { await api.notifications.setPrefs(val); }
     catch (_) {}
   });
-  // TEST BUTTON — needs the /api Cloud Functions backend (Blaze plan) to send
+  // TEST BUTTON — there is no endpoint to call any more; reminders are sent by a
+  // GitHub Actions cron (notifier/send-reminders.js), which nothing in the
+  // browser can trigger. To send a test push, run that workflow with mode=test.
   // document.getElementById('pref-notify-test-btn').addEventListener('click', async e => {
   //   const btn = e.currentTarget;
   //   btn.disabled = true;

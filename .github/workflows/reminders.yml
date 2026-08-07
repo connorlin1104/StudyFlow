@@ -1,0 +1,65 @@
+name: Send assignment reminders
+
+# StudyFlow is a static site talking straight to Firestore, so nothing of ours is
+# awake to send a push when the browser is closed. This workflow is that missing
+# piece: it wakes up on a schedule, asks Firestore which reminders are due, and
+# sends them. See notifier/send-reminders.js.
+on:
+  schedule:
+    # Every 15 minutes. GitHub queues scheduled runs on a best-effort basis and
+    # can be several minutes late under load, which is why the sender treats a
+    # late reminder as still worth delivering rather than dropping it.
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'reminders = normal run, test = push "Notifications are working!" to every subscribed device'
+        type: choice
+        options: [reminders, test]
+        default: reminders
+      dry_run:
+        description: 'Log what would be sent without sending anything or writing to Firestore'
+        type: boolean
+        default: false
+
+# Never let a slow run overlap the next tick — two runs scanning at once could
+# both decide the same assignment is due and send it twice.
+concurrency:
+  group: studyflow-reminders
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: notifier/package-lock.json
+
+      - run: npm ci
+        working-directory: notifier
+
+      - run: node send-reminders.js
+        working-directory: notifier
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          VAPID_EMAIL:              ${{ secrets.VAPID_EMAIL }}
+          VAPID_PUBLIC_KEY:         ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY:        ${{ secrets.VAPID_PRIVATE_KEY }}
+          MODE:                     ${{ inputs.mode }}
+          DRY_RUN:                  ${{ inputs.dry_run }}
+          # How stale a reminder may be and still be worth sending. Past this it
+          # is marked as reminded without a push, so the first run after an
+          # outage doesn't deliver a backlog all at once.
+          MAX_LATE_MINUTES:         '360'
+          # Only used for assignments saved before the client stored deadlineMs;
+          # those carry a wall-clock time with no timezone attached.
+          DEFAULT_TIMEZONE:         'America/Los_Angeles'

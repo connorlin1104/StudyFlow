@@ -1,0 +1,17 @@
+{
+  "name": "studyflow-notifier",
+  "version": "1.0.0",
+  "description": "Scheduled reminder sender for StudyFlow — runs on GitHub Actions, not on Firebase",
+  "private": true,
+  "main": "send-reminders.js",
+  "scripts": {
+    "send": "node send-reminders.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.7.0",
+    "web-push": "^3.6.7"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
