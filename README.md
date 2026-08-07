@@ -59,6 +59,16 @@ make rules      # rules only, much faster
 **Never run a bare `firebase deploy`.** It attempts a Cloud Functions deploy,
 which fails on the Spark plan and aborts the rest of the release.
 
+**Do not add a `database` key to the `firestore` block in `firebase.json`.**
+Firestore's default database is named `(default)`, parentheses included. Setting
+it to `"default"` makes the CLI publish to a release for a database that does
+not exist — it still uploads the ruleset and still prints
+`✔ released rules firestore.rules to cloud.firestore`, so nothing looks wrong,
+but the live database keeps serving whatever it served before. That typo sat in
+this repo from April to August 2026 and quietly discarded every rules change in
+between. If a rules edit doesn't seem to take effect, check the Rules tab in the
+Firebase Console against `firestore.rules` before touching the rules themselves.
+
 ## Project Structure
 
 ```
