@@ -2208,6 +2208,15 @@ function urlBase64ToUint8Array(base64String) {
   return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
 }
 
+/* An existing subscription reports its key as an ArrayBuffer. Treat "the browser
+   didn't tell us" as a mismatch — resubscribing costs one round trip, while
+   guessing wrong leaves a subscription no push can ever reach. */
+function sameApplicationServerKey(existing, wanted) {
+  if (!existing) return false;
+  const bytes = new Uint8Array(existing);
+  return bytes.length === wanted.length && bytes.every((b, i) => b === wanted[i]);
+}
+
 async function registerServiceWorker() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
   try {
@@ -2237,11 +2246,28 @@ async function subscribeToNotifications() {
     return;
   }
   try {
-    const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.subscribe({
-      userVisibleOnly:      true,
-      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-    });
+    const reg    = await navigator.serviceWorker.ready;
+    const appKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+
+    /* A subscription created under a different VAPID key can't be replaced by
+       subscribing over it — the browser throws "Provided applicationServerKey
+       does not match the key in the existing subscription". Toggling off would
+       clear it, but that's no help to anyone whose toggle already reads off
+       (a failed attempt leaves it that way), so retire the stale one here.
+       Its Firestore document goes too: the endpoint is about to change, and
+       nothing else would ever clean up the orphan. */
+    let sub = await reg.pushManager.getSubscription();
+    if (sub && !sameApplicationServerKey(sub.options?.applicationServerKey, appKey)) {
+      try { await api.notifications.unsubscribe(sub.endpoint); } catch (_) {}
+      await sub.unsubscribe();
+      sub = null;
+    }
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly:      true,
+        applicationServerKey: appKey
+      });
+    }
     const notifyBefore = prefs.get('notifyBefore', 60);
     await api.notifications.subscribe(sub.toJSON(), notifyBefore);
     prefs.set('notificationsEnabled', true);
