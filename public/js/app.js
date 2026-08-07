@@ -1713,7 +1713,13 @@ async function handleAddHomework(e) {
 
   let deadlineMs = null;
   if (deadline) {
-    const timeStr = deadlineTime || '00:00';
+    /* A date with no time means "sometime that day", so it ends the day rather
+       than starting it — the same 23:59 the sort comparators already assume.
+       Reading it as midnight put the whole day in the past and made reminders
+       land the evening before ("1 hour before" arrived at 11pm on the 6th for
+       something due on the 7th). Nothing but the reminder sender reads
+       deadlineMs, so this is the only place the two ever disagreed. */
+    const timeStr = deadlineTime || '23:59';
     deadlineMs = new Date(`${deadline}T${timeStr}:00`).getTime();
   }
 

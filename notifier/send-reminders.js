@@ -86,7 +86,7 @@ function tzOffsetMs(ts, timeZone) {
    so an instant that straddles a DST change resolves to the right side of it. */
 function wallClockToEpoch(dateStr, timeStr, timeZone) {
   const [y, mo, d]  = dateStr.split('-').map(Number);
-  const [hh, mm]    = (timeStr || '00:00').split(':').map(Number);
+  const [hh, mm]    = (timeStr || '23:59').split(':').map(Number);
   const guess       = Date.UTC(y, mo - 1, d, hh, mm);
   const firstOffset = tzOffsetMs(guess, timeZone);
   const ts          = guess - firstOffset;
@@ -96,8 +96,8 @@ function wallClockToEpoch(dateStr, timeStr, timeZone) {
 
 /* deadlineMs is written by the client from the user's own clock, so prefer it —
    it already carries the timezone the assignment was created in. The fallback
-   matches how the client computes deadlineMs (a bare date means midnight, not
-   end of day) so old and new assignments fire at a consistent time. */
+   matches how the client computes deadlineMs (a bare date means end of day, so
+   23:59) which keeps old and new assignments firing at a consistent time. */
 function deadlineEpoch(hw) {
   if (typeof hw.deadlineMs === 'number') return hw.deadlineMs;
   if (!hw.deadline) return null;

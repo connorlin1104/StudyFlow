@@ -167,9 +167,10 @@ started storing `deadlineMs`.
 - A reminder whose time has already passed when the assignment is created never
   fires — the same behavior the Cloud Tasks version had. Adding an assignment
   due in 12 hours with a "1 day before" reminder gets you nothing.
-- A date with no time is treated as midnight, matching how the client computes
-  `deadlineMs`. A "1 hour before" reminder on a date-only assignment therefore
-  arrives at 11pm the night before.
+- A date with no time is treated as 23:59 on that date — "due sometime that
+  day" — which is also what the sort comparators in `app.js` assume. It used to
+  be midnight, which put the whole day in the past and made a "1 hour before"
+  reminder arrive at 11pm the night before.
 
 ## Known Limitations on the Spark Plan
 
