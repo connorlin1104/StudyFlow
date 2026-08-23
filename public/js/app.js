@@ -310,9 +310,12 @@ const state = {
 /* =============================================================================
    UNDO / REDO HISTORY (max 30 entries)
    ============================================================================= */
+const CANCELLED = '__undo_cancelled__';
+
 const history = {
   past:   [],
   future: [],
+  _busy:  false,
   push(action) {
     this.past.push(action);
     if (this.past.length > 30) this.past.shift();
@@ -320,24 +323,34 @@ const history = {
     updateHistoryBtns();
   },
   async undo() {
-    if (!this.past.length) return;
-    const action = this.past.pop();
-    try { await action.undo(); } catch (err) { toast(`Undo failed: ${err.message}`, 'error'); }
+    if (!this.past.length || this._busy) return;
+    const action = this.past[this.past.length - 1];
+    this._busy = true; updateHistoryBtns();
+    // Leave the entry on the stack if the undo fails or the user backs out of a
+    // confirmation, so Ctrl+Z can be tried again instead of silently burning it.
+    try { await action.undo(); }
+    catch (err) { if (err?.message !== CANCELLED) toast(`Undo failed: ${err.message}`, 'error'); return; }
+    finally { this._busy = false; updateHistoryBtns(); }
+    this.past.pop();
     this.future.push(action);
     updateHistoryBtns();
   },
   async redo() {
-    if (!this.future.length) return;
-    const action = this.future.pop();
-    try { await action.redo(); } catch (err) { toast(`Redo failed: ${err.message}`, 'error'); }
+    if (!this.future.length || this._busy) return;
+    const action = this.future[this.future.length - 1];
+    this._busy = true; updateHistoryBtns();
+    try { await action.redo(); }
+    catch (err) { if (err?.message !== CANCELLED) toast(`Redo failed: ${err.message}`, 'error'); return; }
+    finally { this._busy = false; updateHistoryBtns(); }
+    this.future.pop();
     this.past.push(action);
     updateHistoryBtns();
   }
 };
 
 function updateHistoryBtns() {
-  document.getElementById('undo-btn').disabled = history.past.length === 0;
-  document.getElementById('redo-btn').disabled = history.future.length === 0;
+  document.getElementById('undo-btn').disabled = history._busy || history.past.length === 0;
+  document.getElementById('redo-btn').disabled = history._busy || history.future.length === 0;
 }
 
 /* =============================================================================
@@ -826,6 +839,137 @@ function commitDrop(type, id, under) {
   }
 }
 
+/* ---------------------------------------------------------------------------
+   PLACEMENT SNAPSHOTS — a drag changes both the source and the target list, so
+   undoing a move means restoring the group/space membership *and* the ordering
+   of every sibling that shifted. These capture and re-apply that whole picture.
+   --------------------------------------------------------------------------- */
+
+/* Snapshot every assignment living in `classIds` (plus any explicitly named
+   ids, so a completed assignment being moved is still covered). */
+function snapshotHwPlacement(classIds, extraIds = []) {
+  const groups = new Set(classIds.filter(Boolean));
+  const extra  = new Set(extraIds);
+  return state.homework
+    .filter(h => (groups.has(h.classId) && !h.completed) || extra.has(h.id))
+    .map(h => ({ id: h.id, classId: h.classId, order: h.order ?? 9999, completed: !!h.completed }));
+}
+
+/* Stable signature of a snapshot: per-group visual order + each item's group.
+   Used to skip pushing history for a drag that changed nothing. */
+function placementSig(snap, groupKey) {
+  const byGroup = {};
+  snap.filter(s => !s.completed).forEach(s => (byGroup[s[groupKey]] ||= []).push(s));
+  const orderPart = Object.keys(byGroup).sort().map(g =>
+    `${g}[${byGroup[g].slice().sort((a, b) => a.order - b.order).map(s => s.id).join(',')}]`
+  ).join('|');
+  const memberPart = snap.slice()
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map(s => `${s.id}>${s[groupKey]}`).join(',');
+  return `${orderPart}#${memberPart}`;
+}
+
+/* Re-apply an assignment snapshot to state + server, then re-render. */
+async function restoreHwPlacement(snap, focusId) {
+  // Every group the restore touches -- where each item sits now, and where it goes.
+  const affected = new Set();
+  for (const s of snap) {
+    const hw = state.homework.find(h => h.id === s.id);
+    if (hw) { affected.add(s.classId); affected.add(hw.classId); }
+  }
+  // Orders as they currently stand, which is what's persisted. Captured before
+  // any mutation so writeOrder can skip docs that land back on the index they
+  // already have -- a restore shouldn't cost a write per sibling.
+  const prevOrders = new Map();
+  state.homework.forEach(h => { if (affected.has(h.classId)) prevOrders.set(h.id, h.order); });
+
+  const regrouped = new Map(); // id -> classId it's being put back into
+  for (const s of snap) {
+    const hw = state.homework.find(h => h.id === s.id);
+    if (!hw) continue;
+    if (hw.classId !== s.classId) regrouped.set(s.id, s.classId);
+    hw.classId = s.classId;
+    hw.order   = s.order;
+  }
+
+  const written = new Set();
+  for (const classId of affected) {
+    const pending = state.homework
+      .filter(h => h.classId === classId && !h.completed)
+      .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
+    pending.forEach((h, i) => { h.order = i; });
+    if (!pending.length) continue;
+    // writeOrder carries one parent change per call. A drag only ever regroups a
+    // single assignment, so the extras path is for concurrent edits.
+    const movers = pending.filter(h => regrouped.has(h.id));
+    for (const extra of movers.slice(1)) {
+      await api.homework.update(extra.id, { classId: extra.classId });
+      written.add(extra.id);
+    }
+    if (movers[0]) written.add(movers[0].id);
+    await api.homework.reorder(pending.map(h => h.id), {
+      prevOrders,
+      moved: movers[0] ? { id: movers[0].id, data: { classId: movers[0].classId } } : null
+    });
+  }
+  // A completed assignment isn't in any pending list, so its group change would
+  // otherwise never be written.
+  for (const [id, classId] of regrouped) {
+    if (!written.has(id)) await api.homework.update(id, { classId });
+  }
+  // Bring the space holding the restored assignment into view.
+  const focus = snap.find(s => s.id === focusId) || snap[0];
+  const home  = state.classes.find(c => c.id === focus?.classId);
+  if (home && home.tabId !== state.activeTabId) { state.activeTabId = home.tabId; renderTabBar(); }
+  renderSchedule();
+  renderSummary();
+}
+
+/* Re-apply a group snapshot to state + server, then re-render. */
+async function restoreClassPlacement(snap, focusId) {
+  const affected = new Set();
+  for (const s of snap) {
+    const cls = state.classes.find(c => c.id === s.id);
+    if (cls) { affected.add(s.tabId); affected.add(cls.tabId); }
+  }
+  // See restoreHwPlacement -- persisted orders, captured before mutating.
+  const prevOrders = new Map();
+  state.classes.forEach(c => { if (affected.has(c.tabId)) prevOrders.set(c.id, c.order); });
+
+  const regrouped = new Map(); // id -> space it's being put back into
+  for (const s of snap) {
+    const cls = state.classes.find(c => c.id === s.id);
+    if (!cls) continue;
+    if (cls.tabId !== s.tabId) regrouped.set(s.id, s.tabId);
+    cls.tabId = s.tabId;
+    cls.order = s.order;
+  }
+
+  const reordered = [];
+  for (const tabId of affected) {
+    const group = state.classes
+      .filter(c => c.tabId === tabId)
+      .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
+    group.forEach((c, i) => { c.order = i; });
+    reordered.push(...group);
+    if (!group.length) continue;
+    const movers = group.filter(c => regrouped.has(c.id));
+    for (const extra of movers.slice(1)) await api.classes.update(extra.id, { tabId: extra.tabId });
+    await api.classes.reorder(group.map(c => c.id), {
+      prevOrders,
+      moved: movers[0] ? { id: movers[0].id, data: { tabId: movers[0].tabId } } : null
+    });
+  }
+  // renderSchedule reads state.classes positionally, so rebuild it to match.
+  state.classes = [...state.classes.filter(c => !affected.has(c.tabId)), ...reordered];
+
+  const focus = snap.find(s => s.id === focusId) || snap[0];
+  const home  = state.tabs.find(t => t.id === focus?.tabId);
+  if (home && home.id !== state.activeTabId) { state.activeTabId = home.id; renderTabBar(); }
+  renderSchedule();
+  renderSettingsClassList();
+}
+
 /* Move / reorder an assignment: set its group, position it, persist. Handles
    both same-group reorder and cross-group (incl. cross-space) moves. */
 async function moveHw(id, targetClassId, beforeId) {
@@ -833,6 +977,7 @@ async function moveHw(id, targetClassId, beforeId) {
   if (!hw || !targetClassId) return;
   const prevClassId    = hw.classId;
   const prevActiveTab  = state.activeTabId;
+  const beforeSnap     = snapshotHwPlacement([prevClassId, targetClassId], [id]);
   hw.classId = targetClassId;
 
   const pending = state.homework
@@ -860,6 +1005,15 @@ async function moveHw(id, targetClassId, beforeId) {
       prevOrders,
       moved: prevClassId !== targetClassId ? { id, data: { classId: targetClassId } } : null
     });
+
+    const afterSnap = snapshotHwPlacement([prevClassId, targetClassId], [id]);
+    if (placementSig(beforeSnap, 'classId') !== placementSig(afterSnap, 'classId')) {
+      const desc = hw.description;
+      history.push({
+        async undo() { await restoreHwPlacement(beforeSnap, id); toast(`Moved "${desc}" back`, 'info'); },
+        async redo() { await restoreHwPlacement(afterSnap,  id); toast(`Moved "${desc}"`, 'success'); }
+      });
+    }
   } catch (err) {
     // Put the UI back. A move that's visible but unsaved is worse than no move:
     // the next drag would persist the phantom layout as if it were real.
@@ -881,6 +1035,9 @@ async function moveClass(id, targetTabId, beforeId) {
   if (!cls || !targetTabId) return;
   const prevTabId  = cls.tabId;
   const prevClasses = state.classes.slice();
+  const beforeSnap  = state.classes
+    .filter(c => c.tabId === prevTabId || c.tabId === targetTabId)
+    .map(c => ({ id: c.id, tabId: c.tabId, order: c.order ?? 9999 }));
   cls.tabId = targetTabId;
 
   const group = state.classes
@@ -904,6 +1061,17 @@ async function moveClass(id, targetTabId, beforeId) {
       prevOrders,
       moved: prevTabId !== targetTabId ? { id, data: { tabId: targetTabId } } : null
     });
+
+    const afterSnap = state.classes
+      .filter(c => c.tabId === prevTabId || c.tabId === targetTabId)
+      .map(c => ({ id: c.id, tabId: c.tabId, order: c.order ?? 9999 }));
+    if (placementSig(beforeSnap, 'tabId') !== placementSig(afterSnap, 'tabId')) {
+      const name = cls.name;
+      history.push({
+        async undo() { await restoreClassPlacement(beforeSnap, id); toast(`Moved "${name}" back`, 'info'); },
+        async redo() { await restoreClassPlacement(afterSnap,  id); toast(`Moved "${name}"`, 'success'); }
+      });
+    }
   } catch (err) {
     // Put the UI back — see moveHw for why a visible-but-unsaved move is dangerous.
     cls.tabId = prevTabId;
@@ -919,7 +1087,7 @@ async function moveClass(id, targetTabId, beforeId) {
 
 /* =============================================================================
    CONTEXT MENU — custom right-click (desktop) / long-press (touch) menu for
-   assignments and groups: Edit, Rename, Move to…, Delete.
+   assignments and groups: Edit, Move to…, Delete.
    ============================================================================= */
 let _ctx = null; // { type, id, x, y }
 
@@ -976,14 +1144,12 @@ function renderCtxRoot() {
   menu.innerHTML = '';
   if (type === 'hw') {
     menu.appendChild(ctxBtn('Edit', '✎',     () => { closeContextMenu(); openHwEditModal(id); }));
-    menu.appendChild(ctxBtn('Rename', '🏷',   () => { closeContextMenu(); openHwEditModal(id); focusField('hw-desc'); }));
     menu.appendChild(ctxBtn('Move to…', '↗',  () => renderCtxMoveHw(), { arrow: true }));
     menu.appendChild(ctxDivider());
     menu.appendChild(ctxBtn('Delete', '🗑',    () => { closeContextMenu(); handleDeleteHw(id); }, { danger: true }));
   } else {
     menu.appendChild(ctxBtn('Add assignment', '＋', () => { closeContextMenu(); openHwModal(id); }));
     menu.appendChild(ctxBtn('Edit', '✎',           () => { closeContextMenu(); startEditClass(state.classes.find(c => c.id === id)); }));
-    menu.appendChild(ctxBtn('Rename', '🏷',         () => { closeContextMenu(); startEditClass(state.classes.find(c => c.id === id)); focusField('class-name'); }));
     menu.appendChild(ctxBtn('Move to space…', '↗',  () => renderCtxMoveClass(), { arrow: true }));
     menu.appendChild(ctxDivider());
     menu.appendChild(ctxBtn('Delete', '🗑',          () => { closeContextMenu(); handleDeleteClass(id); }, { danger: true }));
@@ -1022,13 +1188,6 @@ function renderCtxMoveClass() {
   const id = _ctx.id;
   targets.forEach(t => menu.appendChild(ctxBtn(t.name, '🗂', () => { closeContextMenu(); moveClass(id, t.id, null); })));
   positionCtxMenu();
-}
-
-function focusField(elId) {
-  setTimeout(() => {
-    const el = document.getElementById(elId);
-    if (el) { el.focus(); el.select?.(); }
-  }, 60);
 }
 
 /* =============================================================================
@@ -1650,13 +1809,25 @@ function resetClassForm() {
 }
 
 function startEditClass(cls) {
+  if (!cls) return;
+  // The form reads the space from #settings-tab-select on submit, so point it at
+  // the group's own space first — otherwise editing a group from the context menu
+  // silently moves it into whatever space Settings happened to be showing.
+  const sel = document.getElementById('settings-tab-select');
+  if (sel) {
+    if (!sel.options.length) populateSettingsTabSelect(cls.tabId);
+    sel.value = cls.tabId;
+    if (sel.value !== cls.tabId) { populateSettingsTabSelect(cls.tabId); sel.value = cls.tabId; }
+    renderSettingsClassList();
+  }
   document.getElementById('edit-class-id').value           = cls.id;
   document.getElementById('class-name').value              = cls.name    || '';
   document.getElementById('class-teacher').value           = cls.teacher || '';
   document.getElementById('class-room').value              = cls.room    || '';
   document.getElementById('class-period').value            = cls.period  || '';
-  document.getElementById('group-form-title').textContent  = 'Edit Topic';
+  document.getElementById('group-form-title').textContent  = 'Edit Group';
   document.getElementById('class-form-submit').textContent = 'Save Changes';
+  document.getElementById('cancel-edit-class').classList.remove('hidden');
   selectSwatch(cls.color || PRESET_COLORS[4]);
   openGroupForm();
 }
@@ -1800,6 +1971,33 @@ async function handleClassFormSubmit(e) {
       state.classes.push(created);
       const addedLabel = tabItemLabel(tabId);
       toast(`Added ${article(addedLabel)} ${addedLabel} "${data.name}"`, 'success');
+
+      // Undo removes the group again; redo re-creates it (new id each time, so
+      // the action tracks whichever id is currently live).
+      history.push({
+        liveId: created.id,
+        async undo() {
+          const gone   = this.liveId;
+          const hwHere = state.homework.filter(h => h.classId === gone);
+          if (hwHere.length && !await showConfirm({
+            title: `Undo "${data.name}"?`,
+            message: `Removing this ${addedLabel.toLowerCase()} also deletes ${hwHere.length} assignment${hwHere.length !== 1 ? 's' : ''} added to it.`,
+            confirmText: 'Undo', icon: '↩️'
+          })) throw new Error(CANCELLED);
+          await api.classes.remove(gone);
+          state.classes  = state.classes.filter(c => c.id !== gone);
+          state.homework = state.homework.filter(h => h.classId !== gone);
+          renderSettingsClassList(); renderSchedule(); renderSummary();
+          toast(`Removed ${addedLabel.toLowerCase()} "${data.name}"`, 'info');
+        },
+        async redo() {
+          const again = await api.classes.create(data);
+          this.liveId = again.id;
+          state.classes.push(again);
+          renderSettingsClassList(); renderSchedule(); renderSummary();
+          toast(`Added ${article(addedLabel)} ${addedLabel} "${data.name}"`, 'success');
+        }
+      });
     }
     closeGroupForm();
     renderSettingsClassList();
@@ -1818,6 +2016,7 @@ async function handleAddTab(e) {
   if (!name) return;
   const submitBtn = document.getElementById('tab-form-submit');
   submitBtn.disabled = true;
+  const prevActiveTabId = state.activeTabId;
   try {
     const tab = await api.tabs.create({ name });
     state.tabs.push(tab);
@@ -1830,6 +2029,43 @@ async function handleAddTab(e) {
     closeSettings();
     renderSchedule();
     toast(`Added space "${name}"`, 'success');
+
+    history.push({
+      liveId: tab.id,
+      async undo() {
+        const gone   = this.liveId;
+        const clsIds = state.classes.filter(c => c.tabId === gone).map(c => c.id);
+        const hwHere = state.homework.filter(h => clsIds.includes(h.classId));
+        if (clsIds.length && !await showConfirm({
+          title: `Undo space "${name}"?`,
+          message: `Removing it also deletes ${clsIds.length} group${clsIds.length !== 1 ? 's' : ''} and ${hwHere.length} assignment${hwHere.length !== 1 ? 's' : ''} inside it.`,
+          confirmText: 'Undo', icon: '↩️'
+        })) throw new Error(CANCELLED);
+        await api.tabs.remove(gone);
+        state.tabs     = state.tabs.filter(t => t.id !== gone);
+        state.classes  = state.classes.filter(c => c.tabId !== gone);
+        state.homework = state.homework.filter(h => !clsIds.includes(h.classId));
+        if (state.activeTabId === gone) {
+          state.activeTabId = state.tabs.some(t => t.id === prevActiveTabId)
+            ? prevActiveTabId
+            : (state.tabs[0]?.id ?? null);
+        }
+        renderTabBar(); renderSettingsTabsList();
+        populateSettingsTabSelect(state.activeTabId); renderSettingsClassList();
+        renderSchedule(); renderSummary();
+        toast(`Removed space "${name}"`, 'info');
+      },
+      async redo() {
+        const again = await api.tabs.create({ name });
+        this.liveId = again.id;
+        state.tabs.push(again);
+        state.activeTabId = again.id;
+        renderTabBar(); renderSettingsTabsList();
+        populateSettingsTabSelect(again.id); renderSettingsClassList();
+        renderSchedule(); renderSummary();
+        toast(`Added space "${name}"`, 'success');
+      }
+    });
   } catch (err) {
     toast(`Error: ${err.message}`, 'error');
   } finally {
@@ -2594,7 +2830,13 @@ function wireEvents() {
       input.focus();
       input.select();
 
+      // Clicking Save blurs the input first, and cancelling re-renders the list
+      // (which also blurs it) — so guard against the commit running twice or
+      // running at all after the user backed out.
+      let settled = false;
       async function commitRename() {
+        if (settled) return;
+        settled = true;
         const newName = input.value.trim();
         if (newName && newName !== tab.name) {
           try {
@@ -2609,10 +2851,15 @@ function wireEvents() {
         }
         renderSettingsTabsList();
       }
+      function cancelRename() {
+        if (settled) return;
+        settled = true;
+        renderSettingsTabsList();
+      }
 
       input.addEventListener('keydown', e => {
         if (e.key === 'Enter')  { e.preventDefault(); commitRename(); }
-        if (e.key === 'Escape') renderSettingsTabsList();
+        if (e.key === 'Escape') { e.preventDefault(); cancelRename(); }
       });
       input.addEventListener('blur', commitRename);
       editBtn.addEventListener('click', e => { e.stopPropagation(); commitRename(); }, { once: true });
@@ -2755,8 +3002,11 @@ function wireEvents() {
   // Keyboard shortcuts
   document.addEventListener('keydown', e => {
     const mod = e.metaKey || e.ctrlKey;
-    if (mod && e.key==='z' && !e.shiftKey) { e.preventDefault(); history.undo(); return; }
-    if (mod && (e.key==='y' || (e.key==='z' && e.shiftKey))) { e.preventDefault(); history.redo(); return; }
+    // Let the browser handle undo/redo while the user is editing text.
+    const el  = e.target;
+    const typing = el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+    if (mod && !typing && e.key==='z' && !e.shiftKey) { e.preventDefault(); history.undo(); return; }
+    if (mod && !typing && (e.key==='y' || (e.key==='z' && e.shiftKey))) { e.preventDefault(); history.redo(); return; }
     if (e.key==='Escape') {
       if (!document.getElementById('lightbox').classList.contains('hidden')) { closeLightbox(); return; }
       closeHwModal(); closeSettings(); closeGroupForm();
