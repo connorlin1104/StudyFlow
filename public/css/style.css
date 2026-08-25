@@ -1332,7 +1332,10 @@ kbd {
   position: fixed;
   bottom: 24px;
   right: 24px;
-  z-index: 999;
+  /* Above .auth-screen (9999) and .context-menu (10000). At 999 every toast
+     raised on the sign-in and verification screens rendered *underneath* them,
+     so "email sent" and "could not send" were equally invisible. */
+  z-index: 10050;
   display: flex;
   flex-direction: column;
   gap: 8px;

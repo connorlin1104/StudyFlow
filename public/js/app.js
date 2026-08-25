@@ -4135,7 +4135,10 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       if (authMode === 'signup') {
         const cred = await auth.createUserWithEmailAndPassword(email, password);
-        if (!isOrgEmail(email)) await cred.user.sendEmailVerification();
+        // Reported through sendVerification, not thrown: the account exists
+        // either way, and the gate has already moved on to the verify screen,
+        // where this form's error line is no longer on screen.
+        if (!isOrgEmail(email)) await sendVerification(cred.user);
       } else {
         await auth.signInWithEmailAndPassword(email, password);
       }
@@ -4175,15 +4178,53 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Verification screen actions
-  document.getElementById('auth-resend-btn').addEventListener('click', async () => {
-    const btn = document.getElementById('auth-resend-btn');
-    btn.disabled = true;
+  /* Verification screen actions.
+
+     Firebase throttles verification mail hard once a few go out in quick
+     succession, and answers with auth/too-many-requests rather than sending.
+     Pressing Resend repeatedly is therefore the one thing guaranteed to stop
+     the email arriving — so the button locks itself out between sends, and a
+     refusal says which refusal it was instead of being swallowed whole. */
+  const resendBtn = document.getElementById('auth-resend-btn');
+  let resendUntil = 0, resendTimer = null;
+
+  function tickResend() {
+    const left = Math.ceil((resendUntil - Date.now()) / 1000);
+    if (left > 0) {
+      resendBtn.disabled  = true;
+      resendBtn.textContent = `Resend Email (${left}s)`;
+    } else {
+      clearInterval(resendTimer); resendTimer = null;
+      resendBtn.disabled  = false;
+      resendBtn.textContent = 'Resend Email';
+    }
+  }
+  function holdResend(seconds) {
+    resendUntil = Date.now() + seconds * 1000;
+    if (!resendTimer) resendTimer = setInterval(tickResend, 500);
+    tickResend();
+  }
+
+  async function sendVerification(user) {
     try {
-      await auth.currentUser.sendEmailVerification();
-      toast('Verification email resent — check your inbox.', 'success');
-    } catch { toast('Could not resend. Try again shortly.', 'error'); }
-    finally { btn.disabled = false; }
+      await user.sendEmailVerification();
+      toast('Verification email sent — check your inbox, including spam.', 'success');
+      holdResend(60);
+      return true;
+    } catch (err) {
+      console.error('[verification email]', err.code, err.message);
+      toast(err.code === 'auth/too-many-requests'
+        ? 'Firebase has paused sending for this account after too many requests. Wait a few minutes, then try once.'
+        : `Could not send: ${friendlyAuthError(err.code)} (${err.code || 'no code'})`, 'error');
+      holdResend(err.code === 'auth/too-many-requests' ? 300 : 30);
+      return false;
+    }
+  }
+
+  resendBtn.addEventListener('click', () => {
+    if (Date.now() < resendUntil || !auth.currentUser) return;
+    resendBtn.disabled = true;
+    sendVerification(auth.currentUser);
   });
   document.getElementById('auth-verify-signout').addEventListener('click', () => auth.signOut());
 
@@ -4195,8 +4236,36 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
 
-  // Firebase resolves auth state from cache — this fires in ~100ms for returning users
-  auth.onAuthStateChanged(user => {
+  /* Clicking the link in the email verifies the account on Firebase's side, but
+     `emailVerified` is baked into the ID token this tab is already holding and
+     onAuthStateChanged does not re-fire — so without re-reading the user, the
+     tab sits on "Check your inbox" forever even after a successful
+     verification, and the only way through is a manual page reload. Poll while
+     that screen is up, and again whenever the tab regains focus, which is
+     exactly when someone comes back from their mail app. */
+  let verifyPoll = null;
+
+  function stopVerifyPoll() {
+    if (verifyPoll) { clearInterval(verifyPoll); verifyPoll = null; }
+    window.removeEventListener('focus', checkVerified);
+  }
+  function startVerifyPoll() {
+    if (verifyPoll) return;
+    verifyPoll = setInterval(checkVerified, 4000);
+    window.addEventListener('focus', checkVerified);
+  }
+  async function checkVerified() {
+    const user = auth.currentUser;
+    if (!user) { stopVerifyPoll(); return; }
+    try { await user.reload(); } catch { return; }   // offline, or a revoked token
+    if (auth.currentUser?.emailVerified) {
+      stopVerifyPoll();
+      toast('Email verified — welcome to StudyFlow', 'success');
+      applyAuthState(auth.currentUser);
+    }
+  }
+
+  function applyAuthState(user) {
     currentUser = user;
     const verifyEl = document.getElementById('auth-verify');
     if (user && !user.emailVerified && user.providerData[0]?.providerId === 'password' && !isOrgEmail(user.email)) {
@@ -4207,8 +4276,10 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('auth-loading').classList.add('hidden');
       document.getElementById('auth-card').classList.add('hidden');
       verifyEl.classList.remove('hidden');
+      startVerifyPoll();
       return;
     }
+    stopVerifyPoll();
     verifyEl.classList.add('hidden');
     if (user) {
       // Close any lingering modals before showing the app
@@ -4238,5 +4309,8 @@ document.addEventListener('DOMContentLoaded', () => {
       authLoading.classList.add('hidden');
       authCard.classList.remove('hidden');
     }
-  });
+  }
+
+  // Firebase resolves auth state from cache — this fires in ~100ms for returning users
+  auth.onAuthStateChanged(applyAuthState);
 });
