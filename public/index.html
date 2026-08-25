@@ -179,6 +179,7 @@
       </div>
       <form id="hw-form" novalidate>
         <input type="hidden" id="hw-edit-id">
+        <input type="hidden" id="hw-folder-id">
         <div class="form-group">
           <label for="hw-class">Group <span class="required">*</span></label>
           <select id="hw-class" required></select>
@@ -455,6 +456,21 @@
                 </div>
 
                 <div class="faq-item">
+                  <button class="faq-question">Can I move several assignments at once?</button>
+                  <div class="faq-answer">Yes. Hold <kbd>Ctrl</kbd> (<kbd>&#8984;</kbd> on a Mac) and click each assignment you want &mdash; each click adds to the selection without dropping the rest. Hold <kbd>Shift</kbd> instead to take everything between your last click and this one. Then drag any one of them by its handle and the whole selection moves together, or right-click for Move to&hellip; and Delete. The same works for groups. Press <kbd>Esc</kbd> or click empty space to clear the selection.</div>
+                </div>
+
+                <div class="faq-item">
+                  <button class="faq-question">What are Folders?</button>
+                  <div class="faq-answer">A folder is a mini-group <em>inside</em> a group &mdash; handy for splitting a class into units or projects. Right-click an assignment (or a whole selection) and choose <strong>New folder</strong>, or right-click a group for an empty one. Drag a folder anywhere a group can go and its assignments come along as one piece.</div>
+                </div>
+
+                <div class="faq-item">
+                  <button class="faq-question">What's the difference between disbanding and deleting a folder?</button>
+                  <div class="faq-answer"><strong>Disband</strong> removes only the label &mdash; the assignments stay in the group, in the same order they were in inside the folder. <strong>Delete</strong> removes the folder <em>and</em> everything inside it. Both can be undone with <kbd>Ctrl</kbd>+<kbd>Z</kbd>.</div>
+                </div>
+
+                <div class="faq-item">
                   <button class="faq-question">Can I set due dates and times?</button>
                   <div class="faq-answer">Yes — when adding or editing an item, pick a deadline date. You can also set a specific time. Items without a due date appear at the top of each topic.</div>
                 </div>
@@ -606,6 +622,15 @@
         <button class="close-btn" id="close-whats-new" aria-label="Close">&times;</button>
       </div>
       <div class="release-notes">
+        <div class="release-block">
+          <h3 class="release-version">v1.12 &mdash; August 2026</h3>
+          <ul>
+            <li><strong>Select several things at once</strong> &mdash; <kbd>Ctrl</kbd>/<kbd>&#8984;</kbd>-click adds one assignment or group to the selection, <kbd>Shift</kbd>-click takes everything in between. Drag any of them and the whole selection moves together, into another group or another space.</li>
+            <li><strong>Folders</strong> &mdash; right-click an assignment or a group to make a folder: a mini-group inside a group. Rename it, drag it anywhere a group can go, and everything inside travels with it as one piece.</li>
+            <li>Two ways to take a folder apart: <strong>Disband</strong> drops the label and leaves the assignments where they are, in the same order; <strong>Delete</strong> removes the folder and everything inside it.</li>
+            <li>Right-clicking a selection acts on all of it &mdash; move, group into a folder, or delete in one step, with a single undo to put it back.</li>
+          </ul>
+        </div>
         <div class="release-block">
           <h3 class="release-version">v1.11 &mdash; May 2026</h3>
           <ul>
@@ -775,6 +800,38 @@
   </div><!-- /#app-wrapper -->
 
   <!-- Toast notifications -->
+  <!-- ================================================================
+       FOLDER NAME MODAL — create / rename a folder inside a group
+       ================================================================ -->
+  <div id="folder-form-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="folder-form-title">
+    <div class="modal-backdrop" id="folder-form-backdrop"></div>
+    <div class="modal-box modal-box--narrow">
+      <div class="modal-header">
+        <h2 id="folder-form-title">New Folder</h2>
+        <button class="close-btn" id="close-folder-form" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-form-body">
+        <form id="folder-form" novalidate>
+          <div class="form-group">
+            <label for="folder-name">Folder name <span class="required">*</span></label>
+            <input type="text" id="folder-name" placeholder="e.g. Unit 3 Review" autocomplete="off" required>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn btn-secondary" id="cancel-folder-form">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="folder-form-submit">Create Folder</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Multi-select action bar — appears once two or more things are selected -->
+  <div id="selection-bar" class="selection-bar hidden" role="status">
+    <span id="selection-count" class="selection-count"></span>
+    <button type="button" class="btn btn-sm btn-primary" id="selection-actions">Actions</button>
+    <button type="button" class="btn btn-sm btn-secondary" id="selection-clear">Clear</button>
+  </div>
+
   <div id="toast-container" aria-live="polite"></div>
 
   <!-- Custom confirm dialog -->

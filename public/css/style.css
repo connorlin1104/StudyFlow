@@ -541,6 +541,15 @@ body.is-dragging { cursor: grabbing !important; user-select: none; }
 .ctx-item--danger:hover  { background: color-mix(in srgb, var(--danger) 14%, transparent); }
 .ctx-item--muted         { color: var(--text-muted); font-size: .8rem; }
 .ctx-divider { height: 1px; margin: 5px 6px; background: var(--border); }
+.ctx-heading {
+  padding: 6px 10px 4px;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ctx-item--indent .ctx-icon { margin-left: 14px; }
 
 .class-row--collapsed .class-header { border-bottom: none; }
 .class-row--collapsed .hw-list { display: none; }
@@ -577,6 +586,101 @@ body.is-dragging { cursor: grabbing !important; user-select: none; }
   color: var(--text-muted);
   font-style: italic;
 }
+
+/* =============================================================================
+   FOLDERS — a mini-group inside a group. Indented and boxed so it reads as one
+   thing that happens to contain assignments, rather than as a nested group.
+   ============================================================================= */
+.folder {
+  margin: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color, #94a3b8) 5%, var(--surface));
+  overflow: hidden;
+}
+.folder + .folder { margin-top: 8px; }
+
+.folder-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  user-select: none;
+  background: color-mix(in srgb, var(--color, #94a3b8) 8%, var(--surface));
+  border-bottom: 1px solid var(--border);
+}
+.folder--collapsed .folder-header { border-bottom: none; }
+.folder--collapsed .folder-items  { display: none; }
+
+.folder-drag-handle {
+  color: var(--border);
+  cursor: grab;
+  font-size: .95rem;
+  line-height: 1;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: color var(--t), opacity var(--t);
+  touch-action: none;
+}
+.folder-header:hover .folder-drag-handle { opacity: 1; color: var(--text-muted); }
+@media (pointer: coarse) { .folder-drag-handle { opacity: .45; } }
+
+.folder-toggle-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: .8rem;
+  color: var(--text-muted);
+  font-family: inherit;
+  line-height: 1;
+  pointer-events: none;
+}
+.folder-icon  { flex-shrink: 0; font-size: .9rem; line-height: 1; }
+.folder-name  { font-size: .87rem; font-weight: 700; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-count {
+  flex-shrink: 0;
+  min-width: 20px;
+  text-align: center;
+  padding: 1px 7px;
+  border-radius: 99px;
+  font-size: .7rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-muted) 16%, transparent);
+}
+.folder-add-btn {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  font-family: inherit;
+  font-size: .72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--t), color var(--t), border-color var(--t);
+}
+.folder-header:hover .folder-add-btn { opacity: 1; }
+.folder-add-btn:hover { color: var(--primary); border-color: var(--primary); }
+@media (pointer: coarse) { .folder-add-btn { opacity: 1; } }
+
+.folder-items .hw-item { padding-left: 22px; }
+.folder-items .hw-item:last-child { border-bottom: none; }
+.folder-empty {
+  padding: 10px 14px 10px 22px;
+  font-size: .78rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.folder.folder-dragging { opacity: .35; }
+/* An assignment dragged over a folder drops inside it */
+.folder.folder-drop-target { outline: 2px dashed var(--primary); outline-offset: -2px; }
+.folder.hw-drag-over { border-top: 2px solid var(--primary); }
 
 .hw-item {
   display: flex;
@@ -857,6 +961,7 @@ body.is-dragging { cursor: grabbing !important; user-select: none; }
 #hw-form    { padding: 0 20px 20px; }
 #tab-form   { padding: 0; }
 .modal-form-body { padding: 0 20px 20px; }
+.modal-box--narrow { max-width: 420px; }
 
 .form-group {
   display: flex;
@@ -1494,6 +1599,64 @@ kbd {
 }
 
 /* =============================================================================
+   MULTI-SELECT
+   ============================================================================= */
+.hw-item.sel-active {
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+.folder.sel-active { border-color: var(--primary); }
+.folder.sel-active > .folder-header {
+  background: color-mix(in srgb, var(--primary) 16%, var(--surface));
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+.class-row.sel-active {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+.class-row.sel-active > .class-header {
+  background: color-mix(in srgb, var(--primary) 14%, var(--surface));
+}
+
+/* Everything a multi-item drag picked up fades out at once */
+.drag-source { opacity: .35; }
+
+/* Count riding on the drag clone when a whole selection is in flight */
+.drag-count-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 99px;
+  background: var(--primary);
+  color: #fff;
+  font-size: .72rem;
+  font-weight: 700;
+  line-height: 22px;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,.3);
+}
+
+.selection-bar {
+  position: fixed;
+  left: 50%;
+  bottom: max(18px, env(safe-area-inset-bottom, 18px));
+  transform: translateX(-50%);
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 16px;
+  border-radius: 99px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+}
+.selection-count { font-size: .83rem; font-weight: 600; white-space: nowrap; }
+
+/* =============================================================================
    THEMES
    ============================================================================= */
 [data-theme="dark"] {
@@ -1650,6 +1813,9 @@ kbd {
 
 /* Compact mode */
 .pref-compact .hw-item        { padding: 6px 14px; }
+.pref-compact .folder-items .hw-item { padding-left: 22px; }
+.pref-compact .folder         { margin: 4px 8px; }
+.pref-compact .folder-header  { padding: 5px 10px; }
 .pref-compact .class-header   { padding: 8px 14px; }
 .pref-compact .tab-content    { padding: 12px 16px 32px; }
 .pref-compact .class-row      { margin-bottom: 10px; }

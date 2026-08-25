@@ -49,32 +49,34 @@ async function batchDelete(refs) {
   }
 }
 
-/* Persist a reorder — and optionally the moved doc's new parent (an assignment's
-   classId, a group's tabId) — in the same batch, so a failure mid-flight can't
-   strand an item in its new parent carrying a stale order.
+/* Persist a set of position (and parent) changes in one go.
 
-   `prevOrders` (Map of id → the order the doc currently has) skips docs already
-   sitting at the right index. Without it, dropping an item into a 20-assignment
-   group costs 20 writes against the Spark plan's daily cap instead of the two
-   that actually moved. */
-async function writeOrder(colName, orderedIds, { prevOrders, moved } = {}) {
-  if (!Array.isArray(orderedIds)) throw new Error('order must be an array of IDs');
-  const col = userCol(colName);
+   Each entry is `{ id, order, prev, data, critical }`. `order` is written only
+   when it differs from `prev` — the order the doc already carries — so dropping
+   an item into a 20-assignment group costs the two writes that actually moved
+   rather than 20 against the Spark plan's daily cap. `data` rides along in the
+   same batch, so a failure mid-flight can't strand an item in a new parent
+   carrying a stale order. `critical` marks the docs the user actually acted on:
+   those are the only failures worth surfacing.
 
+   Positions come from the caller rather than an array index because a group's
+   top level interleaves two collections — folders and loose assignments — so
+   neither one's indices are contiguous. */
+async function writeOrders(colName, entries) {
+  const col    = userCol(colName);
+  const byId   = new Map();
   const writes = [];
-  orderedIds.forEach((id, i) => {
-    const data = {};
-    if (!prevOrders || prevOrders.get(id) !== i) data.order = i;
-    if (moved && moved.id === id) Object.assign(data, moved.data);
-    if (Object.keys(data).length) writes.push({ id, ref: col.doc(id), data });
-  });
-  // A parent change must never be dropped just because that doc's order is unchanged
-  if (moved && !writes.some(w => w.id === moved.id)) {
-    writes.push({ id: moved.id, ref: col.doc(moved.id), data: { ...moved.data } });
+  for (const e of entries) {
+    let w = byId.get(e.id);
+    if (!w) { w = { id: e.id, ref: col.doc(e.id), data: {}, critical: false }; byId.set(e.id, w); writes.push(w); }
+    if (e.order !== undefined && e.order !== e.prev) w.data.order = e.order;
+    if (e.data) Object.assign(w.data, e.data);
+    if (e.critical) w.critical = true;
   }
+  const live = writes.filter(w => Object.keys(w.data).length);
 
-  for (let i = 0; i < writes.length; i += CHUNK) {
-    const slice = writes.slice(i, i + CHUNK);
+  for (let i = 0; i < live.length; i += CHUNK) {
+    const slice = live.slice(i, i + CHUNK);
     const batch = db.batch();
     slice.forEach(w => batch.update(w.ref, w.data));
     try {
@@ -82,21 +84,38 @@ async function writeOrder(colName, orderedIds, { prevOrders, moved } = {}) {
     } catch (err) {
       // A single doc deleted on another device fails the whole batch. Retry the
       // slice one write at a time so the survivors still land, and only surface
-      // the error if the doc the user actually moved is the one that failed.
+      // the error if a doc the user actually moved is the one that failed.
       const results = await Promise.allSettled(slice.map(w => w.ref.update(w.data)));
-      const idx = moved ? slice.findIndex(w => w.id === moved.id) : -1;
-      if (idx !== -1 && results[idx].status === 'rejected') throw results[idx].reason;
-      if (idx === -1 && results.every(r => r.status === 'rejected')) throw err;
+      const bad = results.findIndex((r, j) => r.status === 'rejected' && slice[j].critical);
+      if (bad !== -1) throw results[bad].reason;
+      if (!slice.some(w => w.critical) && results.every(r => r.status === 'rejected')) throw err;
     }
   }
   return { ok: true };
 }
 
+/* Contiguous-index flavour of writeOrders, for lists that live in one collection
+   (spaces, and the settings-panel reorders). */
+function writeOrder(colName, orderedIds, { prevOrders, moved } = {}) {
+  if (!Array.isArray(orderedIds)) throw new Error('order must be an array of IDs');
+  const entries = orderedIds.map((id, i) => ({
+    id, order: i,
+    prev:     prevOrders ? prevOrders.get(id) : undefined,
+    data:     moved && moved.id === id ? moved.data : null,
+    critical: !!(moved && moved.id === id)
+  }));
+  // A parent change must never be dropped just because that doc isn't in the list
+  if (moved && !orderedIds.includes(moved.id)) {
+    entries.push({ id: moved.id, data: { ...moved.data }, critical: true });
+  }
+  return writeOrders(colName, entries);
+}
+
 // 'in' accepts at most 10 values per query
-async function homeworkRefsForClasses(classIds) {
+async function refsForClasses(colName, classIds) {
   const refs = [];
   for (let i = 0; i < classIds.length; i += 10) {
-    const snap = await userCol('homework').where('classId', 'in', classIds.slice(i, i + 10)).get();
+    const snap = await userCol(colName).where('classId', 'in', classIds.slice(i, i + 10)).get();
     snap.docs.forEach(d => refs.push(d.ref));
   }
   return refs;
@@ -142,8 +161,10 @@ const api = {
     },
     async remove(id) {
       const clsSnap = await userCol('classes').where('tabId', '==', id).get();
-      const hwRefs  = await homeworkRefsForClasses(clsSnap.docs.map(d => d.id));
-      await batchDelete([userCol('tabs').doc(id), ...clsSnap.docs.map(d => d.ref), ...hwRefs]);
+      const clsIds  = clsSnap.docs.map(d => d.id);
+      const hwRefs  = clsIds.length ? await refsForClasses('homework', clsIds) : [];
+      const fdRefs  = clsIds.length ? await refsForClasses('folders',  clsIds) : [];
+      await batchDelete([userCol('tabs').doc(id), ...clsSnap.docs.map(d => d.ref), ...fdRefs, ...hwRefs]);
       return { ok: true };
     },
     reorder(orderedIds, opts) { return writeOrder('tabs', orderedIds, opts); }
@@ -182,10 +203,54 @@ const api = {
     },
     async remove(id) {
       const hwSnap = await userCol('homework').where('classId', '==', id).get();
-      await batchDelete([userCol('classes').doc(id), ...hwSnap.docs.map(d => d.ref)]);
+      const fdSnap = await userCol('folders').where('classId', '==', id).get();
+      await batchDelete([userCol('classes').doc(id), ...fdSnap.docs.map(d => d.ref), ...hwSnap.docs.map(d => d.ref)]);
       return { ok: true };
     },
     reorder(orderedIds, opts) { return writeOrder('classes', orderedIds, opts); }
+  },
+
+  /* Folders are mini-groups inside a group: a labelled box that holds a subset
+     of a group's assignments and moves as a single unit. A folder and the loose
+     assignments beside it share one `order` sequence — the group's top level —
+     while the assignments inside a folder number themselves 0..n-1 within it.
+
+     Unlike everything else here, create() takes the id it should write to. Undo
+     of a folder delete has to bring the *same* id back, because every assignment
+     that was inside it still points at that id through `folderId`. */
+  folders: {
+    async list() {
+      const snap = await userCol('folders').get();
+      return snap.docs.map(withId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    },
+    newId() { return userCol('folders').doc().id; },
+    async create({ id, classId, name, order }) {
+      if (!classId) throw new Error('classId is required');
+      const data = {
+        classId,
+        name:      (name || 'New Folder').trim() || 'New Folder',
+        order:     order ?? 0,
+        createdAt: FieldValue.serverTimestamp()
+      };
+      const ref = id ? userCol('folders').doc(id) : userCol('folders').doc();
+      await ref.set(data);
+      return { id: ref.id, ...data };
+    },
+    async update(id, { name, classId, order }) {
+      const ref    = userCol('folders').doc(id);
+      const update = {};
+      if (name    !== undefined) update.name    = name;
+      if (classId !== undefined) update.classId = classId;
+      if (order   !== undefined) update.order   = order;
+      if (Object.keys(update).length) await ref.update(update);
+      return readBack(ref);
+    },
+    // Only the label. Whoever calls this decides what happens to the contents —
+    // disband clears their folderId, delete removes them alongside it.
+    async remove(id) {
+      await userCol('folders').doc(id).delete();
+      return { ok: true };
+    }
   },
 
   homework: {
@@ -198,7 +263,7 @@ const api = {
     // `completed`/`completedAt` are accepted so undoing a delete restores an
     // assignment in the state it was deleted in, rather than resurrecting it
     // as active. They default to a fresh, incomplete assignment.
-    async create({ classId, description, notes, deadline, deadlineTime, deadlineMs, remindBefore, attachments, completed, completedAt }) {
+    async create({ classId, folderId, description, notes, deadline, deadlineTime, deadlineMs, remindBefore, attachments, completed, completedAt, order }) {
       if (!classId || !description?.trim()) throw new Error('classId and description are required');
       const data = {
         classId,
@@ -206,6 +271,8 @@ const api = {
         completed:   !!completed,
         createdAt:   FieldValue.serverTimestamp()
       };
+      if (folderId) data.folderId = folderId;
+      if (order != null) data.order = order;
       if (completed) data.completedAt = completedAt ?? FieldValue.serverTimestamp();
       if (notes)        data.notes        = notes;
       if (deadline)     data.deadline     = deadline;
@@ -215,11 +282,12 @@ const api = {
       if (Array.isArray(attachments) && attachments.length) data.attachments = attachments;
       return readBack(await userCol('homework').add(data));
     },
-    async update(id, { classId, description, notes, deadline, deadlineTime, deadlineMs, completed, remindBefore, attachments }) {
+    async update(id, { classId, folderId, description, notes, deadline, deadlineTime, deadlineMs, completed, remindBefore, attachments }) {
       const ref      = userCol('homework').doc(id);
       const existing = (await ref.get()).data() || {};
       const update   = {};
       if (classId      !== undefined) update.classId      = classId;
+      if (folderId     !== undefined) update.folderId     = folderId || null;
       if (description  !== undefined) update.description  = description;
       if (notes        !== undefined) update.notes        = notes;
       if (deadline     !== undefined) update.deadline     = deadline;
@@ -304,8 +372,173 @@ const state = {
   tabs:        [],
   activeTabId: 'classes',
   classes:     [],
+  folders:     [],
   homework:    []
 };
+
+/* Groups are rendered in array order, but the server sorts `classes` by `order`
+   alone — which interleaves spaces, since each space numbers its own groups from
+   zero. Re-sort by (space, order) after every load or move. */
+function resortClasses() {
+  state.classes.sort((a, b) => {
+    const ta = state.tabs.findIndex(t => t.id === a.tabId);
+    const tb = state.tabs.findIndex(t => t.id === b.tabId);
+    return (ta - tb) || ((a.order ?? 9999) - (b.order ?? 9999));
+  });
+}
+
+/* -----------------------------------------------------------------------------
+   BOARD SHAPE
+
+   A group's top level holds folders and loose assignments in one shared `order`
+   sequence; a folder holds assignments in its own sequence. Both lists are
+   normalised to `{ type, id, ref }` so drag, move and reorder never have to care
+   which of the two collections an entry came from.
+   ----------------------------------------------------------------------------- */
+function deadlineValue(hw) {
+  if (!hw?.deadline) return Infinity;
+  return new Date(hw.deadline + (hw.deadlineTime ? `T${hw.deadlineTime}` : 'T23:59')).getTime();
+}
+
+function groupChildren(classId) {
+  const items = [
+    ...state.folders
+      .filter(f => f.classId === classId)
+      .map(f => ({ type: 'fd', id: f.id, ref: f, order: f.order ?? null, due: Infinity })),
+    ...state.homework
+      .filter(h => h.classId === classId && !h.completed && !h.folderId)
+      .map(h => ({ type: 'hw', id: h.id, ref: h, order: h.order ?? null, due: deadlineValue(h) }))
+  ];
+  return sortChildren(items);
+}
+
+function folderChildren(folderId) {
+  return sortChildren(state.homework
+    .filter(h => h.folderId === folderId && !h.completed)
+    .map(h => ({ type: 'hw', id: h.id, ref: h, order: h.order ?? null, due: deadlineValue(h) })));
+}
+
+/* Manual order wins once anything in the list has one; until then the list falls
+   back to deadline order, which is how a brand-new group sorts itself. */
+function sortChildren(items) {
+  const hasManual = items.some(i => i.order != null);
+  return items.sort((a, b) => {
+    if (hasManual) {
+      if (a.order != null && b.order != null && a.order !== b.order) return a.order - b.order;
+      if (a.order != null && b.order == null) return -1;
+      if (a.order == null && b.order != null) return 1;
+    }
+    if (a.due !== b.due) return a.due - b.due;
+    // Ties have to break the same way every render, or items jitter between them
+    return a.type === b.type ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : (a.type === 'fd' ? -1 : 1);
+  });
+}
+
+function containerItems(classId, folderId) {
+  return folderId ? folderChildren(folderId) : groupChildren(classId);
+}
+
+/* Selection keys name a thing on the board across re-renders: `hw:`, `fd:`, `cls:`. */
+const KEY_PREFIX = { hw: 'hw:', folder: 'fd:', fd: 'fd:', class: 'cls:', cls: 'cls:' };
+function selKey(type, id) { return KEY_PREFIX[type] + id; }
+function splitKey(key)    { const i = key.indexOf(':'); return [key.slice(0, i), key.slice(i + 1)]; }
+function keyKind(key)     { return key.startsWith('cls:') ? 'class' : 'item'; }
+
+/* =============================================================================
+   MULTI-SELECT
+
+   Ctrl/Cmd-click adds one thing to the selection and leaves the rest alone;
+   Shift-click takes everything between the anchor and the click. A selection
+   only ever holds one kind at a time — groups, or board items (assignments and
+   folders, which share a group's ordering) — because the two move through
+   different code and can't be dragged as one pile.
+
+   Ranges are read off the DOM rather than off state, so "everything in between"
+   means everything the user can actually see: a collapsed group or folder hides
+   its contents from the range, which is what it looks like it should do.
+   ============================================================================= */
+const sel = { kind: null, ids: new Set(), anchor: null };
+
+function selectionKeys(kind = sel.kind) {
+  if (!sel.ids.size) return [];
+  const visible = visibleSelKeys(kind).filter(k => sel.ids.has(k));
+  const rest    = [...sel.ids].filter(k => !visible.includes(k));
+  return [...visible, ...rest];
+}
+
+function visibleSelKeys(kind) {
+  const q = kind === 'class'
+    ? '#classes-container .class-row'
+    : '#classes-container .folder, #classes-container .hw-item';
+  return [...document.querySelectorAll(q)]
+    .filter(el => el.offsetParent !== null)
+    .map(el => el.classList.contains('class-row') ? selKey('cls', el.dataset.classId)
+              : el.classList.contains('folder')   ? selKey('fd',  el.dataset.folderId)
+              : selKey('hw', el.dataset.hwId));
+}
+
+function elementForKey(key) {
+  const [type, id] = splitKey(key);
+  const q = type === 'hw'  ? `.hw-item[data-hw-id="${CSS.escape(id)}"]`
+          : type === 'fd'  ? `.folder[data-folder-id="${CSS.escape(id)}"]`
+          :                  `.class-row[data-class-id="${CSS.escape(id)}"]`;
+  return document.querySelector(`#classes-container ${q}`);
+}
+
+function selectionExists(key) {
+  const [type, id] = splitKey(key);
+  if (type === 'hw')  return state.homework.some(h => h.id === id);
+  if (type === 'fd')  return state.folders.some(f => f.id === id);
+  return state.classes.some(c => c.id === id);
+}
+
+function clearSelection() {
+  if (!sel.ids.size && !sel.kind) return;
+  sel.ids.clear(); sel.kind = null; sel.anchor = null;
+  applySelectionStyles();
+}
+
+function handleSelectClick(key, mod, shift) {
+  const kind = keyKind(key);
+  if (sel.kind !== kind) { sel.ids.clear(); sel.kind = kind; sel.anchor = null; }
+
+  const all = visibleSelKeys(kind);
+  const from = sel.anchor ? all.indexOf(sel.anchor) : -1;
+  const to   = all.indexOf(key);
+
+  if (shift && from !== -1 && to !== -1) {
+    if (!mod) sel.ids.clear();
+    all.slice(Math.min(from, to), Math.max(from, to) + 1).forEach(k => sel.ids.add(k));
+  } else if (mod || shift) {
+    // Ctrl/Cmd toggles; a Shift-click with nothing to reach back to starts the range
+    if (mod && sel.ids.has(key)) sel.ids.delete(key);
+    else sel.ids.add(key);
+    sel.anchor = key;
+  }
+  if (!sel.ids.size) { sel.kind = null; sel.anchor = null; }
+  applySelectionStyles();
+}
+
+/* Selection survives re-renders, so it has to be re-painted after each one and
+   pruned of anything that has since been deleted. */
+function applySelectionStyles() {
+  [...sel.ids].forEach(k => { if (!selectionExists(k)) sel.ids.delete(k); });
+  if (!sel.ids.size) { sel.kind = null; sel.anchor = null; }
+  document.querySelectorAll('#classes-container .sel-active')
+    .forEach(el => el.classList.remove('sel-active'));
+  sel.ids.forEach(key => elementForKey(key)?.classList.add('sel-active'));
+  renderSelectionBar();
+}
+
+function renderSelectionBar() {
+  const bar = document.getElementById('selection-bar');
+  if (!bar) return;
+  const n = sel.ids.size;
+  bar.classList.toggle('hidden', n < 2);
+  if (n < 2) return;
+  const noun = sel.kind === 'class' ? 'group' : 'item';
+  document.getElementById('selection-count').textContent = `${n} ${noun}${n === 1 ? '' : 's'} selected`;
+}
 
 /* =============================================================================
    UNDO / REDO HISTORY (max 30 entries)
@@ -576,6 +809,9 @@ function renderTabBar() {
 
 function setActiveTab(tabId) {
   state.activeTabId = tabId;
+  // A drag switches spaces to carry the held items across, so the selection it
+  // is carrying has to survive that; a plain space switch drops it.
+  if (!document.body.classList.contains('is-dragging')) clearSelection();
   renderTabBar();
   renderSchedule();
 }
@@ -606,25 +842,13 @@ function renderSchedule() {
       tabActions.classList.remove('hidden');
     }
     emptyState.classList.remove('hidden');
+    applySelectionStyles();
     return;
   }
   emptyState.classList.add('hidden');
   container.innerHTML = '';
   tabClasses.forEach(cls => {
-    const groupHw = state.homework.filter(h => h.classId === cls.id && !h.completed);
-    const hasManualOrder = groupHw.some(h => h.order != null);
-    const pending = groupHw.sort((a, b) => {
-      if (hasManualOrder) {
-        if (a.order != null && b.order != null) return a.order - b.order;
-        if (a.order != null) return -1;
-        if (b.order != null) return 1;
-      }
-      if (!a.deadline && !b.deadline) return 0;
-      if (!a.deadline) return 1;
-      if (!b.deadline) return -1;
-      return new Date(a.deadline + (a.deadlineTime ? `T${a.deadlineTime}` : 'T23:59')) - new Date(b.deadline + (b.deadlineTime ? `T${b.deadlineTime}` : 'T23:59'));
-    });
-    const row = buildClassRow(cls, pending);
+    const row = buildClassRow(cls);
     addClassDragBehavior(row, cls, container);
     container.appendChild(row);
   });
@@ -641,9 +865,11 @@ function renderSchedule() {
   });
   addTopicWrap.appendChild(addTopicBtn);
   container.appendChild(addTopicWrap);
+  applySelectionStyles();
 }
 
-function buildClassRow(cls, pendingHw) {
+function buildClassRow(cls) {
+  const pendingHw    = state.homework.filter(h => h.classId === cls.id && !h.completed);
   const collapsedIds = prefs.get('collapsedTopics', []);
   const startCollapsed = Array.isArray(collapsedIds) && collapsedIds.includes(cls.id);
 
@@ -673,28 +899,61 @@ function buildClassRow(cls, pendingHw) {
     <div class="hw-list" id="hw-list-${cls.id}"></div>
   `;
 
-  const hwList = row.querySelector('.hw-list');
-  if (pendingHw.length === 0) {
+  const hwList   = row.querySelector('.hw-list');
+  const children = groupChildren(cls.id);
+  if (children.length === 0) {
     hwList.innerHTML = `<div class="hw-empty">No pending assignments ✓</div>`;
   } else {
-    pendingHw.forEach(hw => {
-      const item = buildHwItem(hw);
-      addHwDragBehavior(item, hw, hwList);
-      hwList.appendChild(item);
-    });
+    children.forEach(child => hwList.appendChild(
+      child.type === 'fd' ? buildFolder(child.ref) : buildHwItem(child.ref, true)
+    ));
   }
   return row;
+}
+
+/* A folder — a labelled box of assignments living inside a group. It sits in the
+   group's own ordering next to loose assignments, and drags as one piece. */
+function buildFolder(folder) {
+  const collapsed = new Set(prefs.get('collapsedFolders', [])).has(folder.id);
+  const kids      = folderChildren(folder.id);
+
+  const el = document.createElement('div');
+  el.className = `folder${collapsed ? ' folder--collapsed' : ''}`;
+  el.dataset.folderId = folder.id;
+  el.innerHTML = `
+    <div class="folder-header">
+      <span class="folder-drag-handle" title="Drag to move folder">⠿</span>
+      <button class="folder-toggle-btn" aria-label="Toggle folder" aria-expanded="${!collapsed}">${collapsed ? '▸' : '▾'}</button>
+      <span class="folder-icon" aria-hidden="true">${collapsed ? '📁' : '📂'}</span>
+      <span class="folder-name">${esc(folder.name)}</span>
+      <span class="folder-count">${kids.length}</span>
+      <button class="folder-add-btn" data-folder-id="${folder.id}" title="Add assignment to this folder">+ Add</button>
+    </div>
+    <div class="folder-items"></div>
+  `;
+
+  const box = el.querySelector('.folder-items');
+  if (!kids.length) {
+    box.innerHTML = `<div class="folder-empty">Empty — drag assignments in</div>`;
+  } else {
+    kids.forEach(child => box.appendChild(buildHwItem(child.ref, true)));
+  }
+  attachDrag(el, 'folder', folder.id);
+  return el;
 }
 
 /* =============================================================================
    UNIFIED DRAG-AND-DROP  (pointer-based: mouse + touch + pen, handle-only)
 
    A clone follows the cursor (so items visibly move, not just fade). Supports:
-     • reorder assignments within a group
-     • move an assignment into another group (any space)
+     • reorder assignments within a group or a folder
+     • move an assignment into another group or folder (any space)
      • reorder groups within a space
+     • drag a folder — its assignments travel with it as one piece
      • cross-space moves — drag over the top space bar to switch spaces, then
        drop the held item into the target space.
+     • dragging anything that is part of the current multi-selection drags the
+       whole selection.
    Settings-panel reorder still uses its own native DnD (separate code path).
    ============================================================================= */
 const DRAG = {
@@ -702,15 +961,18 @@ const DRAG = {
     handle: '.hw-drag-handle', item: '.hw-item', dataSel: 'data-hw-id',
     dragCls: 'hw-dragging', cloneCls: 'hw-drag-clone',
   },
+  folder: {
+    handle: '.folder-drag-handle', item: '.folder', dataSel: 'data-folder-id',
+    dragCls: 'folder-dragging', cloneCls: 'folder-drag-clone',
+  },
   class: {
     handle: '.class-drag-handle', item: '.class-row', dataSel: 'data-class-id',
     dragCls: 'class-dragging', cloneCls: 'class-drag-clone',
   },
 };
 
-// Thin wrappers keep existing render call-sites unchanged.
-function addHwDragBehavior(item, hw)    { attachDrag(item, 'hw',    hw.id);  }
-function addClassDragBehavior(row, cls) { attachDrag(row,  'class', cls.id); }
+// Thin wrapper keeps the existing render call-site unchanged.
+function addClassDragBehavior(row, cls) { attachDrag(row, 'class', cls.id); }
 
 function nodeFor(type, id) {
   const cfg = DRAG[type];
@@ -718,13 +980,17 @@ function nodeFor(type, id) {
 }
 
 function clearDropHighlights() {
-  document.querySelectorAll('.hw-drag-over, .class-drag-over, .tab--drop, .group-drop-target')
-    .forEach(el => el.classList.remove('hw-drag-over', 'class-drag-over', 'tab--drop', 'group-drop-target'));
+  document.querySelectorAll('.hw-drag-over, .class-drag-over, .tab--drop, .group-drop-target, .folder-drop-target')
+    .forEach(el => el.classList.remove('hw-drag-over', 'class-drag-over', 'tab--drop', 'group-drop-target', 'folder-drop-target'));
 }
 
 function attachDrag(node, type, id) {
   const cfg = DRAG[type];
-  const handle = node.querySelector(cfg.handle);
+  // A folder's handle sits in its header; querySelector would otherwise find a
+  // child assignment's handle in a nested list.
+  const handle = type === 'folder'
+    ? node.querySelector('.folder-header > .folder-drag-handle')
+    : node.querySelector(cfg.handle);
   if (!handle) return;
   handle.style.touchAction = 'none';
   handle.addEventListener('pointerdown', e => {
@@ -735,10 +1001,26 @@ function attachDrag(node, type, id) {
   });
 }
 
+/* What this drag is actually carrying: the whole selection when the grabbed
+   thing is part of it, otherwise just the grabbed thing (and the selection goes
+   away, the same as a plain click on it would do). */
+function dragPayload(type, id) {
+  const key  = selKey(type, id);
+  const kind = type === 'class' ? 'class' : 'item';
+  if (sel.kind === kind && sel.ids.has(key)) {
+    const keys = selectionKeys(kind);
+    // Grabbed item first, so "moved N back" toasts and focus name the right one
+    return { kind, keys: [key, ...keys.filter(k => k !== key)], primary: key };
+  }
+  clearSelection();
+  return { kind, keys: [key], primary: key };
+}
+
 function startPointerDrag(down, type, id) {
   const cfg = DRAG[type];
   const pid = down.pointerId;
   const sx = down.clientX, sy = down.clientY;
+  const payload = dragPayload(type, id);
   let started = false, clone = null, offX = 0, offY = 0, lastTab = null;
 
   const move = ev => {
@@ -754,7 +1036,14 @@ function startPointerDrag(down, type, id) {
       clone = (src || document.createElement('div')).cloneNode(true);
       clone.classList.add(cfg.cloneCls);
       clone.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;margin:0;z-index:9999;pointer-events:none;opacity:.92;box-shadow:0 10px 28px rgba(0,0,0,.22);border-radius:10px;`;
+      if (payload.keys.length > 1) {
+        const badge = document.createElement('span');
+        badge.className = 'drag-count-badge';
+        badge.textContent = payload.keys.length;
+        clone.appendChild(badge);
+      }
       document.body.appendChild(clone);
+      payload.keys.forEach(k => elementForKey(k)?.classList.add(cfg.dragCls, 'drag-source'));
       if (src) src.classList.add(cfg.dragCls);
       document.body.classList.add('is-dragging');
       if (ev.pointerType === 'touch' && navigator.vibrate) navigator.vibrate(40);
@@ -778,11 +1067,13 @@ function startPointerDrag(down, type, id) {
       if (tabId !== state.activeTabId && tabId !== lastTab) {
         lastTab = tabId;
         setActiveTab(tabId);
+        // The board was rebuilt, so the faded-out originals have to be re-marked
+        payload.keys.forEach(k => elementForKey(k)?.classList.add(cfg.dragCls, 'drag-source'));
       }
       return;
     }
     lastTab = null;
-    highlightDropTarget(type, id, under);
+    highlightDropTarget(payload, under);
   };
 
   const up = ev => {
@@ -795,11 +1086,11 @@ function startPointerDrag(down, type, id) {
       const under = document.elementFromPoint(ev.clientX, ev.clientY);
       clone.style.visibility = '';
       clone.remove();
-      const src = nodeFor(type, id);
-      if (src) src.classList.remove(cfg.dragCls);
+      document.querySelectorAll('.drag-source').forEach(el =>
+        el.classList.remove('drag-source', 'hw-dragging', 'folder-dragging', 'class-dragging'));
       clearDropHighlights();
       document.body.classList.remove('is-dragging');
-      commitDrop(type, id, under);
+      commitDrop(payload, under);
     }
   };
 
@@ -808,220 +1099,313 @@ function startPointerDrag(down, type, id) {
   document.addEventListener('pointercancel', up);
 }
 
-function highlightDropTarget(type, id, under) {
-  if (type === 'hw') {
-    const overItem = under?.closest?.('.hw-item');
-    if (overItem && overItem.dataset.hwId !== id) { overItem.classList.add('hw-drag-over'); return; }
+function highlightDropTarget(payload, under) {
+  if (payload.kind === 'class') {
     const overRow = under?.closest?.('.class-row');
-    if (overRow) overRow.classList.add('group-drop-target');
-  } else {
-    const overRow = under?.closest?.('.class-row');
-    if (overRow && overRow.dataset.classId !== id) overRow.classList.add('class-drag-over');
+    if (overRow && !payload.keys.includes(selKey('cls', overRow.dataset.classId))) {
+      overRow.classList.add('class-drag-over');
+    }
+    return;
   }
+  const overItem = under?.closest?.('.hw-item');
+  if (overItem && !payload.keys.includes(selKey('hw', overItem.dataset.hwId))) {
+    overItem.classList.add('hw-drag-over');
+    return;
+  }
+  const overFolder = under?.closest?.('.folder');
+  if (overFolder && !payload.keys.includes(selKey('fd', overFolder.dataset.folderId))) {
+    // A folder can't go inside a folder — it lands beside it instead
+    overFolder.classList.add(payload.keys.some(k => k.startsWith('fd:')) ? 'hw-drag-over' : 'folder-drop-target');
+    return;
+  }
+  const overRow = under?.closest?.('.class-row');
+  if (overRow) overRow.classList.add('group-drop-target');
 }
 
-function commitDrop(type, id, under) {
-  if (type === 'hw') {
-    const overItem = under?.closest?.('.hw-item');
+function commitDrop(payload, under) {
+  if (payload.kind === 'class') {
     const overRow  = under?.closest?.('.class-row');
-    if (overItem && overItem.dataset.hwId !== id) {
-      const targetHw = state.homework.find(h => h.id === overItem.dataset.hwId);
-      if (targetHw?.classId) moveHw(id, targetHw.classId, overItem.dataset.hwId);
-    } else if (overRow) {
-      moveHw(id, overRow.dataset.classId, null); // append to group
-    }
-    // dropped on empty space / tab with no group → leave assignment where it was
-  } else {
-    const overRow = under?.closest?.('.class-row');
-    const targetTabId = state.activeTabId; // may have switched during the drag
-    const beforeId = (overRow && overRow.dataset.classId !== id) ? overRow.dataset.classId : null;
-    moveClass(id, targetTabId, beforeId);
+    const beforeId = overRow && !payload.keys.includes(selKey('cls', overRow.dataset.classId))
+      ? overRow.dataset.classId : null;
+    // The space may have switched during the drag — that's the destination.
+    return moveClasses(payload.keys.map(k => splitKey(k)[1]), state.activeTabId, beforeId);
   }
+
+  const hasFolder = payload.keys.some(k => k.startsWith('fd:'));
+  const overItem  = under?.closest?.('.hw-item');
+  if (overItem && !payload.keys.includes(selKey('hw', overItem.dataset.hwId))) {
+    const target = state.homework.find(h => h.id === overItem.dataset.hwId);
+    if (!target) return;
+    // Dropping a folder onto an assignment that lives inside another folder puts
+    // it on the group's top level, just ahead of that folder.
+    if (target.folderId && hasFolder) return moveItems(payload.keys, target.classId, null, selKey('fd', target.folderId));
+    return moveItems(payload.keys, target.classId, target.folderId || null, selKey('hw', target.id));
+  }
+
+  const overFolder = under?.closest?.('.folder');
+  if (overFolder && !payload.keys.includes(selKey('fd', overFolder.dataset.folderId))) {
+    const folder = state.folders.find(f => f.id === overFolder.dataset.folderId);
+    if (!folder) return;
+    if (hasFolder) return moveItems(payload.keys, folder.classId, null, selKey('fd', folder.id));
+    return moveItems(payload.keys, folder.classId, folder.id, null); // append into the folder
+  }
+
+  const overRow = under?.closest?.('.class-row');
+  if (overRow) return moveItems(payload.keys, overRow.dataset.classId, null, null); // append to group
+  // dropped on empty space / a space with no group → leave everything where it was
 }
 
 /* ---------------------------------------------------------------------------
    PLACEMENT SNAPSHOTS — a drag changes both the source and the target list, so
-   undoing a move means restoring the group/space membership *and* the ordering
-   of every sibling that shifted. These capture and re-apply that whole picture.
+   undoing a move means restoring the group/folder/space membership *and* the
+   ordering of every sibling that shifted. These capture and re-apply that whole
+   picture.
    --------------------------------------------------------------------------- */
 
-/* Snapshot every assignment living in `classIds` (plus any explicitly named
-   ids, so a completed assignment being moved is still covered). */
-function snapshotHwPlacement(classIds, extraIds = []) {
-  const groups = new Set(classIds.filter(Boolean));
-  const extra  = new Set(extraIds);
-  return state.homework
-    .filter(h => (groups.has(h.classId) && !h.completed) || extra.has(h.id))
-    .map(h => ({ id: h.id, classId: h.classId, order: h.order ?? 9999, completed: !!h.completed }));
+/* Snapshot every folder and assignment living in `classIds`, plus any explicitly
+   named assignments, so a completed one being moved is still covered. Completed
+   assignments in an affected group only matter when they sit in a folder, since
+   a folder move rewrites their classId too. */
+function snapshotBoard(classIds, extraHwIds = []) {
+  const groups = new Set([...classIds].filter(Boolean));
+  const extra  = new Set(extraHwIds);
+  return {
+    hw: state.homework
+      .filter(h => (groups.has(h.classId) ? (!h.completed || !!h.folderId) : extra.has(h.id)))
+      .map(h => ({ id: h.id, classId: h.classId, folderId: h.folderId || null, order: h.order ?? 9999, completed: !!h.completed })),
+    folders: state.folders
+      .filter(f => groups.has(f.classId))
+      .map(f => ({ id: f.id, classId: f.classId, order: f.order ?? 9999 }))
+  };
 }
 
-/* Stable signature of a snapshot: per-group visual order + each item's group.
-   Used to skip pushing history for a drag that changed nothing. */
-function placementSig(snap, groupKey) {
-  const byGroup = {};
-  snap.filter(s => !s.completed).forEach(s => (byGroup[s[groupKey]] ||= []).push(s));
-  const orderPart = Object.keys(byGroup).sort().map(g =>
-    `${g}[${byGroup[g].slice().sort((a, b) => a.order - b.order).map(s => s.id).join(',')}]`
-  ).join('|');
-  const memberPart = snap.slice()
-    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-    .map(s => `${s.id}>${s[groupKey]}`).join(',');
+/* Stable signature of a snapshot: what each container holds, in visual order,
+   plus where every item lives. Raw `order` numbers can't be compared directly —
+   a snapshot taken after a move has been renumbered 0..n-1 and one taken before
+   it hasn't — so positions only ever enter as list order. Used to skip pushing
+   history for a drag that changed nothing. */
+function boardSig(snap) {
+  const containers = {};
+  const push = (k, entry) => (containers[k] ||= []).push(entry);
+  snap.folders.forEach(f => push(`C:${f.classId}`, { id: `fd:${f.id}`, order: f.order }));
+  snap.hw.filter(h => !h.completed).forEach(h =>
+    push(h.folderId ? `F:${h.folderId}` : `C:${h.classId}`, { id: `hw:${h.id}`, order: h.order }));
+
+  const orderPart = Object.keys(containers).sort().map(k =>
+    `${k}[${containers[k].sort((a, b) => a.order - b.order).map(e => e.id).join(',')}]`).join('|');
+  const memberPart = [
+    ...snap.hw.map(h => `hw:${h.id}>${h.classId}/${h.folderId || '-'}`),
+    ...snap.folders.map(f => `fd:${f.id}>${f.classId}`)
+  ].sort().join(',');
   return `${orderPart}#${memberPart}`;
 }
 
-/* Re-apply an assignment snapshot to state + server, then re-render. */
-async function restoreHwPlacement(snap, focusId) {
-  // Every group the restore touches -- where each item sits now, and where it goes.
-  const affected = new Set();
-  for (const s of snap) {
-    const hw = state.homework.find(h => h.id === s.id);
-    if (hw) { affected.add(s.classId); affected.add(hw.classId); }
-  }
-  // Orders as they currently stand, which is what's persisted. Captured before
-  // any mutation so writeOrder can skip docs that land back on the index they
-  // already have -- a restore shouldn't cost a write per sibling.
-  const prevOrders = new Map();
-  state.homework.forEach(h => { if (affected.has(h.classId)) prevOrders.set(h.id, h.order); });
-
-  const regrouped = new Map(); // id -> classId it's being put back into
-  for (const s of snap) {
-    const hw = state.homework.find(h => h.id === s.id);
-    if (!hw) continue;
-    if (hw.classId !== s.classId) regrouped.set(s.id, s.classId);
-    hw.classId = s.classId;
-    hw.order   = s.order;
-  }
-
-  const written = new Set();
-  for (const classId of affected) {
-    const pending = state.homework
-      .filter(h => h.classId === classId && !h.completed)
-      .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
-    pending.forEach((h, i) => { h.order = i; });
-    if (!pending.length) continue;
-    // writeOrder carries one parent change per call. A drag only ever regroups a
-    // single assignment, so the extras path is for concurrent edits.
-    const movers = pending.filter(h => regrouped.has(h.id));
-    for (const extra of movers.slice(1)) {
-      await api.homework.update(extra.id, { classId: extra.classId });
-      written.add(extra.id);
-    }
-    if (movers[0]) written.add(movers[0].id);
-    await api.homework.reorder(pending.map(h => h.id), {
-      prevOrders,
-      moved: movers[0] ? { id: movers[0].id, data: { classId: movers[0].classId } } : null
+/* Renumber every container inside `classIds` — each group's top level and each
+   of its folders — so orders run 0..n-1, and return the writes that implies. */
+function renumberClasses(classIds, prevHwOrders, prevFolderOrders) {
+  const hw = [], folders = [];
+  for (const classId of classIds) {
+    groupChildren(classId).forEach((child, i) => {
+      child.ref.order = i;
+      (child.type === 'fd' ? folders : hw).push({
+        id: child.id, order: i,
+        prev: (child.type === 'fd' ? prevFolderOrders : prevHwOrders).get(child.id)
+      });
+    });
+    state.folders.filter(f => f.classId === classId).forEach(folder => {
+      folderChildren(folder.id).forEach((child, i) => {
+        child.ref.order = i;
+        hw.push({ id: child.id, order: i, prev: prevHwOrders.get(child.id) });
+      });
     });
   }
-  // A completed assignment isn't in any pending list, so its group change would
-  // otherwise never be written.
-  for (const [id, classId] of regrouped) {
-    if (!written.has(id)) await api.homework.update(id, { classId });
-  }
-  // Bring the space holding the restored assignment into view.
-  const focus = snap.find(s => s.id === focusId) || snap[0];
-  const home  = state.classes.find(c => c.id === focus?.classId);
-  if (home && home.tabId !== state.activeTabId) { state.activeTabId = home.tabId; renderTabBar(); }
+  return { hw, folders };
+}
+
+/* Write the renumbering out, folding in the parent changes (`classId`,
+   `folderId`) that made it necessary. A parent change is critical: it must not
+   be silently dropped just because that doc's order happened not to move. */
+async function persistPlacement(classIds, prevHwOrders, prevFolderOrders, hwData = new Map(), folderData = new Map()) {
+  const entries = renumberClasses(classIds, prevHwOrders, prevFolderOrders);
+  const attach = (list, dataMap) => {
+    const seen = new Set(list.map(e => e.id));
+    list.forEach(e => { if (dataMap.has(e.id)) { e.data = dataMap.get(e.id); e.critical = true; } });
+    dataMap.forEach((data, id) => { if (!seen.has(id)) list.push({ id, data, critical: true }); });
+  };
+  attach(entries.hw, hwData);
+  attach(entries.folders, folderData);
+  if (entries.folders.length) await writeOrders('folders',  entries.folders);
+  if (entries.hw.length)      await writeOrders('homework', entries.hw);
+}
+
+/* Put local state back the way a snapshot describes it, without writing. Used to
+   roll the UI back when a move fails: a move that's visible but unsaved is worse
+   than no move, because the next drag would persist the phantom layout as real. */
+function applyBoardLocally(snap) {
+  snap.folders.forEach(s => {
+    const f = state.folders.find(x => x.id === s.id);
+    if (f) { f.classId = s.classId; f.order = s.order; }
+  });
+  snap.hw.forEach(s => {
+    const h = state.homework.find(x => x.id === s.id);
+    if (h) { h.classId = s.classId; h.folderId = s.folderId; h.order = s.order; }
+  });
+}
+
+/* Re-apply a snapshot to state *and* the server, then re-render. */
+async function restoreBoard(snap, focusKey) {
+  // Every group the restore touches — where each item sits now, and where it goes
+  const affected = new Set();
+  snap.folders.forEach(s => {
+    const f = state.folders.find(x => x.id === s.id);
+    if (f) { affected.add(s.classId); affected.add(f.classId); }
+  });
+  snap.hw.forEach(s => {
+    const h = state.homework.find(x => x.id === s.id);
+    if (h) { affected.add(s.classId); affected.add(h.classId); }
+  });
+
+  // Orders as they currently stand, which is what's persisted. Captured before
+  // any mutation so the write can skip docs landing back on the index they
+  // already have — a restore shouldn't cost a write per sibling.
+  const prevHwOrders = new Map(), prevFolderOrders = new Map();
+  state.homework.forEach(h => { if (affected.has(h.classId)) prevHwOrders.set(h.id, h.order); });
+  state.folders.forEach(f  => { if (affected.has(f.classId)) prevFolderOrders.set(f.id, f.order); });
+
+  const hwData = new Map(), folderData = new Map();
+  snap.folders.forEach(s => {
+    const f = state.folders.find(x => x.id === s.id);
+    if (!f) return;
+    if (f.classId !== s.classId) folderData.set(f.id, { classId: s.classId });
+    f.classId = s.classId; f.order = s.order;
+  });
+  snap.hw.forEach(s => {
+    const h = state.homework.find(x => x.id === s.id);
+    if (!h) return;
+    const data = {};
+    if (h.classId !== s.classId) data.classId = s.classId;
+    if ((h.folderId || null) !== s.folderId) data.folderId = s.folderId;
+    if (Object.keys(data).length) hwData.set(h.id, data);
+    h.classId = s.classId; h.folderId = s.folderId; h.order = s.order;
+  });
+
+  await persistPlacement([...affected], prevHwOrders, prevFolderOrders, hwData, folderData);
+  focusItem(focusKey || (snap.hw[0] && selKey('hw', snap.hw[0].id)));
   renderSchedule();
   renderSummary();
 }
 
-/* Re-apply a group snapshot to state + server, then re-render. */
-async function restoreClassPlacement(snap, focusId) {
-  const affected = new Set();
-  for (const s of snap) {
-    const cls = state.classes.find(c => c.id === s.id);
-    if (cls) { affected.add(s.tabId); affected.add(cls.tabId); }
-  }
-  // See restoreHwPlacement -- persisted orders, captured before mutating.
-  const prevOrders = new Map();
-  state.classes.forEach(c => { if (affected.has(c.tabId)) prevOrders.set(c.id, c.order); });
-
-  const regrouped = new Map(); // id -> space it's being put back into
-  for (const s of snap) {
-    const cls = state.classes.find(c => c.id === s.id);
-    if (!cls) continue;
-    if (cls.tabId !== s.tabId) regrouped.set(s.id, s.tabId);
-    cls.tabId = s.tabId;
-    cls.order = s.order;
-  }
-
-  const reordered = [];
-  for (const tabId of affected) {
-    const group = state.classes
-      .filter(c => c.tabId === tabId)
-      .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
-    group.forEach((c, i) => { c.order = i; });
-    reordered.push(...group);
-    if (!group.length) continue;
-    const movers = group.filter(c => regrouped.has(c.id));
-    for (const extra of movers.slice(1)) await api.classes.update(extra.id, { tabId: extra.tabId });
-    await api.classes.reorder(group.map(c => c.id), {
-      prevOrders,
-      moved: movers[0] ? { id: movers[0].id, data: { tabId: movers[0].tabId } } : null
-    });
-  }
-  // renderSchedule reads state.classes positionally, so rebuild it to match.
-  state.classes = [...state.classes.filter(c => !affected.has(c.tabId)), ...reordered];
-
-  const focus = snap.find(s => s.id === focusId) || snap[0];
-  const home  = state.tabs.find(t => t.id === focus?.tabId);
-  if (home && home.id !== state.activeTabId) { state.activeTabId = home.id; renderTabBar(); }
-  renderSchedule();
-  renderSettingsClassList();
+/* Bring the space holding an item into view, so a move or an undo is visible. */
+function focusItem(key) {
+  if (!key) return;
+  const [type, id] = splitKey(key);
+  const classId = type === 'hw'  ? state.homework.find(h => h.id === id)?.classId
+                : type === 'fd'  ? state.folders.find(f => f.id === id)?.classId
+                :                  id;
+  const home = state.classes.find(c => c.id === classId);
+  if (home && home.tabId !== state.activeTabId) { state.activeTabId = home.tabId; renderTabBar(); }
 }
 
-/* Move / reorder an assignment: set its group, position it, persist. Handles
-   both same-group reorder and cross-group (incl. cross-space) moves. */
-async function moveHw(id, targetClassId, beforeId) {
-  const hw = state.homework.find(h => h.id === id);
-  if (!hw || !targetClassId) return;
-  const prevClassId    = hw.classId;
-  const prevActiveTab  = state.activeTabId;
-  const beforeSnap     = snapshotHwPlacement([prevClassId, targetClassId], [id]);
-  hw.classId = targetClassId;
+/* How to name a pile of moved things in a toast. */
+function describeItems(moved) {
+  if (moved.length === 1) {
+    const it = moved[0];
+    return `"${it.type === 'fd' ? it.ref.name : it.ref.description}"`;
+  }
+  return `${moved.length} items`;
+}
 
-  const pending = state.homework
-    .filter(h => h.classId === targetClassId && !h.completed && h.id !== id)
-    .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
-  const idx = beforeId ? pending.findIndex(h => h.id === beforeId) : -1;
-  if (idx === -1) pending.push(hw); else pending.splice(idx, 0, hw);
-  // Snapshot before renumbering, so the write can skip whatever didn't move
-  const prevOrders = new Map(pending.map(h => [h.id, h.order]));
-  pending.forEach((h, i) => { h.order = i; });
+/* -----------------------------------------------------------------------------
+   MOVE — assignments and folders
+
+   `keys`      selection keys, in the order they should land
+   `classId`   destination group
+   `folderId`  destination folder inside it, or null for the group's top level
+   `beforeKey` the item to land in front of, or null to append
+   ----------------------------------------------------------------------------- */
+async function moveItems(keys, targetClassId, targetFolderId, beforeKey) {
+  const targetCls = state.classes.find(c => c.id === targetClassId);
+  if (!targetCls) return;
+  // A folder only ever holds assignments from its own group, so the destination
+  // folder and group have to agree.
+  if (targetFolderId && !state.folders.some(f => f.id === targetFolderId && f.classId === targetClassId)) return;
+
+  // An assignment inside a folder that is itself moving travels with the folder,
+  // and folders don't nest, so a folder aimed into a folder is simply dropped.
+  const movingFolders = new Set(keys.filter(k => k.startsWith('fd:')).map(k => k.slice(3)));
+  const moved = [];
+  for (const key of keys) {
+    if (key === beforeKey) continue;
+    const [type, id] = splitKey(key);
+    if (type === 'fd') {
+      const folder = state.folders.find(f => f.id === id);
+      if (folder && !targetFolderId) moved.push({ type: 'fd', id, ref: folder });
+    } else if (type === 'hw') {
+      const hw = state.homework.find(h => h.id === id);
+      if (hw && !(hw.folderId && movingFolders.has(hw.folderId))) moved.push({ type: 'hw', id, ref: hw });
+    }
+  }
+  if (!moved.length) return;
+
+  const affected = new Set([targetClassId, ...moved.map(m => m.ref.classId)]);
+  const extraHwIds = moved.filter(m => m.type === 'hw').map(m => m.id);
+  const before = snapshotBoard(affected, extraHwIds);
+  const prevActiveTab = state.activeTabId;
+
+  const prevHwOrders = new Map(), prevFolderOrders = new Map();
+  state.homework.forEach(h => { if (affected.has(h.classId)) prevHwOrders.set(h.id, h.order); });
+  state.folders.forEach(f  => { if (affected.has(f.classId)) prevFolderOrders.set(f.id, f.order); });
+
+  // Where they land: the destination list minus whatever is being moved, with
+  // the moved pile spliced in at the drop point.
+  const movedKeys = new Set(moved.map(m => selKey(m.type, m.id)));
+  const list = containerItems(targetClassId, targetFolderId)
+    .filter(c => !movedKeys.has(selKey(c.type, c.id)));
+  const at = beforeKey ? list.findIndex(c => selKey(c.type, c.id) === beforeKey) : -1;
+  list.splice(at === -1 ? list.length : at, 0, ...moved);
+
+  const hwData = new Map(), folderData = new Map();
+  for (const m of moved) {
+    if (m.type === 'fd') {
+      if (m.ref.classId === targetClassId) continue;
+      folderData.set(m.id, { classId: targetClassId });
+      // Everything inside comes along, completed assignments included — they are
+      // hidden from the board but still carry the group they belong to.
+      state.homework.filter(h => h.folderId === m.id).forEach(h => {
+        hwData.set(h.id, { classId: targetClassId });
+        h.classId = targetClassId;
+      });
+      m.ref.classId = targetClassId;
+    } else {
+      const data = {};
+      if (m.ref.classId !== targetClassId) data.classId = targetClassId;
+      if ((m.ref.folderId || null) !== (targetFolderId || null)) data.folderId = targetFolderId || null;
+      if (Object.keys(data).length) hwData.set(m.id, data);
+      m.ref.classId  = targetClassId;
+      m.ref.folderId = targetFolderId || null;
+    }
+  }
+  list.forEach((c, i) => { c.ref.order = i; });
 
   let tabChanged = false;
-  if (prevClassId !== targetClassId && state.activeTabId !== null) {
-    // Ensure the target group's space is in view so the move is visible.
-    const targetCls = state.classes.find(c => c.id === targetClassId);
-    if (targetCls && targetCls.tabId !== state.activeTabId) { state.activeTabId = targetCls.tabId; tabChanged = true; }
-  }
-
-  if (tabChanged) renderTabBar();
+  if (targetCls.tabId !== state.activeTabId) { state.activeTabId = targetCls.tabId; tabChanged = true; renderTabBar(); }
   renderSchedule();
   renderSummary();
 
   try {
-    await api.homework.reorder(pending.map(h => h.id), {
-      prevOrders,
-      moved: prevClassId !== targetClassId ? { id, data: { classId: targetClassId } } : null
-    });
+    await persistPlacement([...affected], prevHwOrders, prevFolderOrders, hwData, folderData);
 
-    const afterSnap = snapshotHwPlacement([prevClassId, targetClassId], [id]);
-    if (placementSig(beforeSnap, 'classId') !== placementSig(afterSnap, 'classId')) {
-      const desc = hw.description;
+    const after = snapshotBoard(affected, extraHwIds);
+    if (boardSig(before) !== boardSig(after)) {
+      const label = describeItems(moved);
+      const focus = keys[0];
       history.push({
-        async undo() { await restoreHwPlacement(beforeSnap, id); toast(`Moved "${desc}" back`, 'info'); },
-        async redo() { await restoreHwPlacement(afterSnap,  id); toast(`Moved "${desc}"`, 'success'); }
+        async undo() { await restoreBoard(before, focus); toast(`Moved ${label} back`, 'info'); },
+        async redo() { await restoreBoard(after,  focus); toast(`Moved ${label}`, 'success'); }
       });
     }
   } catch (err) {
-    // Put the UI back. A move that's visible but unsaved is worse than no move:
-    // the next drag would persist the phantom layout as if it were real.
-    hw.classId = prevClassId;
-    prevOrders.forEach((order, hid) => {
-      const h = state.homework.find(x => x.id === hid);
-      if (h) h.order = order;
-    });
+    applyBoardLocally(before);
     if (tabChanged) { state.activeTabId = prevActiveTab; renderTabBar(); }
     renderSchedule();
     renderSummary();
@@ -1029,57 +1413,109 @@ async function moveHw(id, targetClassId, beforeId) {
   }
 }
 
-/* Move / reorder a group: set its space, position it within that space, persist. */
-async function moveClass(id, targetTabId, beforeId) {
-  const cls = state.classes.find(c => c.id === id);
-  if (!cls || !targetTabId) return;
-  const prevTabId  = cls.tabId;
-  const prevClasses = state.classes.slice();
-  const beforeSnap  = state.classes
-    .filter(c => c.tabId === prevTabId || c.tabId === targetTabId)
+/* -----------------------------------------------------------------------------
+   MOVE — groups
+
+   A group carries its folders and assignments with it implicitly: both point at
+   the group, not the space, so only `tabId` and `order` ever change.
+   ----------------------------------------------------------------------------- */
+function classSig(snap) {
+  const byTab = {};
+  snap.forEach(s => (byTab[s.tabId] ||= []).push(s));
+  return Object.keys(byTab).sort().map(t =>
+    `${t}[${byTab[t].slice().sort((a, b) => a.order - b.order).map(s => s.id).join(',')}]`).join('|');
+}
+
+function snapshotClasses(tabIds) {
+  const tabs = new Set([...tabIds].filter(Boolean));
+  return state.classes.filter(c => tabs.has(c.tabId))
     .map(c => ({ id: c.id, tabId: c.tabId, order: c.order ?? 9999 }));
-  cls.tabId = targetTabId;
+}
+
+/* Renumber each affected space 0..n-1 and write that out, folding in the space
+   changes that made it necessary. */
+async function persistClassPlacement(tabIds, prevOrders, tabData) {
+  const entries = [];
+  for (const tabId of tabIds) {
+    state.classes.filter(c => c.tabId === tabId)
+      .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999))
+      .forEach((c, i) => { c.order = i; entries.push({ id: c.id, order: i, prev: prevOrders.get(c.id) }); });
+  }
+  const seen = new Set(entries.map(e => e.id));
+  entries.forEach(e => { if (tabData.has(e.id)) { e.data = tabData.get(e.id); e.critical = true; } });
+  tabData.forEach((data, id) => { if (!seen.has(id)) entries.push({ id, data, critical: true }); });
+  if (entries.length) await writeOrders('classes', entries);
+  resortClasses();
+}
+
+async function restoreClasses(snap, focusId) {
+  const affected = new Set();
+  snap.forEach(s => {
+    const c = state.classes.find(x => x.id === s.id);
+    if (c) { affected.add(s.tabId); affected.add(c.tabId); }
+  });
+  const prevOrders = new Map();
+  state.classes.forEach(c => { if (affected.has(c.tabId)) prevOrders.set(c.id, c.order); });
+
+  const tabData = new Map();
+  snap.forEach(s => {
+    const c = state.classes.find(x => x.id === s.id);
+    if (!c) return;
+    if (c.tabId !== s.tabId) tabData.set(c.id, { tabId: s.tabId });
+    c.tabId = s.tabId; c.order = s.order;
+  });
+
+  await persistClassPlacement([...affected], prevOrders, tabData);
+  const focus = snap.find(s => s.id === focusId) || snap[0];
+  if (focus && focus.tabId !== state.activeTabId) { state.activeTabId = focus.tabId; renderTabBar(); }
+  renderSchedule();
+  renderSettingsClassList();
+}
+
+async function moveClasses(ids, targetTabId, beforeId) {
+  const moving = ids.map(id => state.classes.find(c => c.id === id)).filter(Boolean);
+  if (!moving.length || !targetTabId || !state.tabs.some(t => t.id === targetTabId)) return;
+
+  const movingIds = new Set(moving.map(c => c.id));
+  const affected  = new Set([targetTabId, ...moving.map(c => c.tabId)]);
+  const before    = snapshotClasses(affected);
+  const prevOrders = new Map();
+  state.classes.forEach(c => { if (affected.has(c.tabId)) prevOrders.set(c.id, c.order); });
+
+  const tabData = new Map();
+  moving.forEach(c => {
+    if (c.tabId !== targetTabId) tabData.set(c.id, { tabId: targetTabId });
+    c.tabId = targetTabId;
+  });
 
   const group = state.classes
-    .filter(c => c.tabId === targetTabId && c.id !== id)
+    .filter(c => c.tabId === targetTabId && !movingIds.has(c.id))
     .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
-  const idx = beforeId ? group.findIndex(c => c.id === beforeId) : -1;
-  if (idx === -1) group.push(cls); else group.splice(idx, 0, cls);
-  // Snapshot before renumbering, so the write can skip whatever didn't move
-  const prevOrders = new Map(group.map(c => [c.id, c.order]));
+  const at = beforeId ? group.findIndex(c => c.id === beforeId) : -1;
+  group.splice(at === -1 ? group.length : at, 0, ...moving);
   group.forEach((c, i) => { c.order = i; });
 
-  // Rebuild the array so display order (which renderSchedule reads positionally)
-  // matches: other spaces keep their order, the target space is the reordered set.
-  const others = state.classes.filter(c => c.tabId !== targetTabId && c.id !== id);
-  state.classes = [...others, ...group];
-
+  resortClasses();
   renderSchedule();
 
   try {
-    await api.classes.reorder(group.map(c => c.id), {
-      prevOrders,
-      moved: prevTabId !== targetTabId ? { id, data: { tabId: targetTabId } } : null
-    });
-
-    const afterSnap = state.classes
-      .filter(c => c.tabId === prevTabId || c.tabId === targetTabId)
-      .map(c => ({ id: c.id, tabId: c.tabId, order: c.order ?? 9999 }));
-    if (placementSig(beforeSnap, 'tabId') !== placementSig(afterSnap, 'tabId')) {
-      const name = cls.name;
+    await persistClassPlacement([...affected], prevOrders, tabData);
+    const after = snapshotClasses(affected);
+    if (classSig(before) !== classSig(after)) {
+      const label = moving.length === 1 ? `"${moving[0].name}"` : `${moving.length} groups`;
+      const focus = moving[0].id;
       history.push({
-        async undo() { await restoreClassPlacement(beforeSnap, id); toast(`Moved "${name}" back`, 'info'); },
-        async redo() { await restoreClassPlacement(afterSnap,  id); toast(`Moved "${name}"`, 'success'); }
+        async undo() { await restoreClasses(before, focus); toast(`Moved ${label} back`, 'info'); },
+        async redo() { await restoreClasses(after,  focus); toast(`Moved ${label}`, 'success'); }
       });
     }
+    renderSettingsClassList();
   } catch (err) {
-    // Put the UI back — see moveHw for why a visible-but-unsaved move is dangerous.
-    cls.tabId = prevTabId;
-    prevOrders.forEach((order, cid) => {
-      const c = prevClasses.find(x => x.id === cid);
-      if (c) c.order = order;
+    before.forEach(s => {
+      const c = state.classes.find(x => x.id === s.id);
+      if (c) { c.tabId = s.tabId; c.order = s.order; }
     });
-    state.classes = prevClasses;
+    resortClasses();
     renderSchedule();
     toast(`Move failed: ${err.message}`, 'error');
   }
@@ -1089,7 +1525,7 @@ async function moveClass(id, targetTabId, beforeId) {
    CONTEXT MENU — custom right-click (desktop) / long-press (touch) menu for
    assignments and groups: Edit, Move to…, Delete.
    ============================================================================= */
-let _ctx = null; // { type, id, x, y }
+let _ctx = null; // { type, id, key, keys, x, y }
 
 function closeContextMenu() {
   document.getElementById('context-menu')?.remove();
@@ -1100,11 +1536,20 @@ function closeContextMenu() {
   window.removeEventListener('resize', closeContextMenu, true);
 }
 function onCtxOutside(e) { if (!e.target.closest('#context-menu')) closeContextMenu(); }
-function onCtxKey(e)     { if (e.key === 'Escape') { e.preventDefault(); closeContextMenu(); } }
+function onCtxKey(e)     { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeContextMenu(); } }
 
 function openContextMenu(x, y, type, id) {
   closeContextMenu();
-  _ctx = { type, id, x, y };
+  const key  = selKey(type, id);
+  const kind = type === 'class' ? 'class' : 'item';
+  // Right-clicking inside the selection acts on all of it. Right-clicking
+  // outside it acts on just that one thing but leaves the selection alone, so
+  // the menu's own Select entry can build one up a tap at a time — the only way
+  // to multi-select on a touch screen, where there is no Ctrl to hold.
+  const inSel = sel.kind === kind && sel.ids.has(key);
+  const keys  = inSel ? [key, ...selectionKeys(kind).filter(k => k !== key)] : [key];
+  _ctx = { type, id, key, kind, keys, inSel, x, y };
+
   const menu = document.createElement('div');
   menu.className = 'context-menu';
   menu.id = 'context-menu';
@@ -1129,64 +1574,148 @@ function positionCtxMenu() {
 
 function ctxBtn(label, icon, onClick, opts = {}) {
   const b = document.createElement('button');
-  b.className = `ctx-item${opts.danger ? ' ctx-item--danger' : ''}${opts.muted ? ' ctx-item--muted' : ''}`;
+  b.className = `ctx-item${opts.danger ? ' ctx-item--danger' : ''}${opts.muted ? ' ctx-item--muted' : ''}${opts.indent ? ' ctx-item--indent' : ''}`;
   b.innerHTML = `<span class="ctx-icon">${icon || ''}</span><span class="ctx-label">${esc(label)}</span>${opts.arrow ? '<span class="ctx-arrow">›</span>' : ''}`;
+  if (opts.hint) b.title = opts.hint;
   if (onClick) b.addEventListener('click', onClick);
   else b.disabled = true;
   return b;
 }
 function ctxDivider() { const d = document.createElement('div'); d.className = 'ctx-divider'; return d; }
+function ctxHeading(text) {
+  const h = document.createElement('div');
+  h.className = 'ctx-heading';
+  h.textContent = text;
+  return h;
+}
+
+// Assignments actually affected by an action on `keys` — a selected folder brings
+// its contents along, and an assignment already inside one isn't counted twice.
+function itemsInKeys(keys) {
+  const folderIds = new Set(keys.filter(k => k.startsWith('fd:')).map(k => k.slice(3)));
+  const hw = new Map();
+  keys.filter(k => k.startsWith('hw:')).forEach(k => {
+    const h = state.homework.find(x => x.id === k.slice(3));
+    if (h && !folderIds.has(h.folderId)) hw.set(h.id, h);
+  });
+  state.homework.filter(h => folderIds.has(h.folderId)).forEach(h => hw.set(h.id, h));
+  return {
+    folders: [...folderIds].map(id => state.folders.find(f => f.id === id)).filter(Boolean),
+    hw: [...hw.values()]
+  };
+}
 
 function renderCtxRoot() {
   const menu = document.getElementById('context-menu');
   if (!menu || !_ctx) return;
-  const { type, id } = _ctx;
+  const { type, id, keys, inSel } = _ctx;
+  const multi = keys.length > 1;
   menu.innerHTML = '';
-  if (type === 'hw') {
-    menu.appendChild(ctxBtn('Edit', '✎',     () => { closeContextMenu(); openHwEditModal(id); }));
-    menu.appendChild(ctxBtn('Move to…', '↗',  () => renderCtxMoveHw(), { arrow: true }));
-    menu.appendChild(ctxDivider());
-    menu.appendChild(ctxBtn('Delete', '🗑',    () => { closeContextMenu(); handleDeleteHw(id); }, { danger: true }));
+
+  if (multi) {
+    const noun = type === 'class' ? 'group' : 'item';
+    menu.appendChild(ctxHeading(`${keys.length} ${noun}s selected`));
   } else {
-    menu.appendChild(ctxBtn('Add assignment', '＋', () => { closeContextMenu(); openHwModal(id); }));
-    menu.appendChild(ctxBtn('Edit', '✎',           () => { closeContextMenu(); startEditClass(state.classes.find(c => c.id === id)); }));
-    menu.appendChild(ctxBtn('Move to space…', '↗',  () => renderCtxMoveClass(), { arrow: true }));
+    menu.appendChild(ctxBtn(inSel ? 'Deselect' : sel.ids.size ? 'Add to selection' : 'Select', '☑',
+      () => { closeContextMenu(); handleSelectClick(_ctx.key, true, false); }));
     menu.appendChild(ctxDivider());
-    menu.appendChild(ctxBtn('Delete', '🗑',          () => { closeContextMenu(); handleDeleteClass(id); }, { danger: true }));
   }
+
+  if (type === 'class') {
+    if (!multi) {
+      menu.appendChild(ctxBtn('Add assignment', '＋', () => { closeContextMenu(); openHwModal(id); }));
+      menu.appendChild(ctxBtn('New folder', '📂',     () => { closeContextMenu(); promptNewFolder(id, []); }));
+      menu.appendChild(ctxBtn('Edit', '✎',            () => { closeContextMenu(); startEditClass(state.classes.find(c => c.id === id)); }));
+    }
+    menu.appendChild(ctxBtn('Move to space…', '↗', () => renderCtxMoveClass(), { arrow: true }));
+    menu.appendChild(ctxDivider());
+    menu.appendChild(ctxBtn(multi ? `Delete ${keys.length} groups` : 'Delete', '🗑',
+      () => { closeContextMenu(); deleteClasses(keys.map(k => splitKey(k)[1])); }, { danger: true }));
+    positionCtxMenu();
+    return;
+  }
+
+  if (type === 'folder' && !multi) {
+    const folder = state.folders.find(f => f.id === id);
+    if (!folder) { closeContextMenu(); return; }
+    menu.appendChild(ctxBtn('Add assignment', '＋', () => { closeContextMenu(); openHwModal(folder.classId, folder.id); }));
+    menu.appendChild(ctxBtn('Rename folder', '✎',   () => { closeContextMenu(); promptRenameFolder(folder.id); }));
+    menu.appendChild(ctxBtn('Move to…', '↗',        () => renderCtxMoveItems(), { arrow: true }));
+    menu.appendChild(ctxDivider());
+    menu.appendChild(ctxBtn('Disband folder', '📤', () => { closeContextMenu(); disbandFolder(folder.id); },
+      { hint: 'Remove the label and leave the assignments where they are' }));
+    menu.appendChild(ctxBtn('Delete folder', '🗑',   () => { closeContextMenu(); deleteItems([selKey('fd', folder.id)]); },
+      { danger: true, hint: 'Delete the folder and everything inside it' }));
+    positionCtxMenu();
+    return;
+  }
+
+  // One assignment, or a mixed pile of assignments and folders
+  const hw = type === 'hw' ? state.homework.find(h => h.id === id) : null;
+  if (!multi && hw) {
+    menu.appendChild(ctxBtn('Edit', '✎', () => { closeContextMenu(); openHwEditModal(id); }));
+  }
+  menu.appendChild(ctxBtn('Move to…', '↗', () => renderCtxMoveItems(), { arrow: true }));
+  if (!keys.some(k => k.startsWith('fd:'))) {
+    menu.appendChild(ctxBtn(multi ? `New folder from ${keys.length} assignments` : 'New folder from this', '📂',
+      () => { closeContextMenu(); promptNewFolder(null, keys); }));
+  }
+  if (keys.some(k => k.startsWith('hw:') && state.homework.find(h => h.id === k.slice(3))?.folderId)) {
+    menu.appendChild(ctxBtn('Move out of folder', '📤', () => {
+      closeContextMenu();
+      const first = state.homework.find(h => h.id === splitKey(keys[0])[1]);
+      if (first) moveItems(keys, first.classId, null, null);
+    }));
+  }
+  menu.appendChild(ctxDivider());
+  const { folders: fCount, hw: hwCount } = itemsInKeys(keys);
+  const delLabel = multi
+    ? `Delete ${keys.length} items`
+    : (fCount.length ? 'Delete folder' : 'Delete');
+  menu.appendChild(ctxBtn(delLabel, '🗑', () => { closeContextMenu(); deleteItems(keys); },
+    { danger: true, hint: hwCount.length ? `${hwCount.length} assignment${hwCount.length === 1 ? '' : 's'}` : '' }));
   positionCtxMenu();
 }
 
-function renderCtxMoveHw() {
+/* Every place an assignment or folder can land: each group, and each folder
+   inside it. Folders can't nest, so they only ever offer groups. */
+function renderCtxMoveItems() {
   const menu = document.getElementById('context-menu');
-  const hw = state.homework.find(h => h.id === _ctx.id);
-  if (!menu || !hw) return;
+  if (!menu || !_ctx) return;
+  const keys      = _ctx.keys;
+  const hasFolder = keys.some(k => k.startsWith('fd:'));
   menu.innerHTML = '';
   menu.appendChild(ctxBtn('Back', '‹', () => renderCtxRoot()));
   menu.appendChild(ctxDivider());
-  const targets = state.classes
-    .filter(c => c.id !== hw.classId)
-    .sort((a, b) => (state.tabs.findIndex(t => t.id === a.tabId) - state.tabs.findIndex(t => t.id === b.tabId)) || ((a.order ?? 0) - (b.order ?? 0)));
-  if (!targets.length) menu.appendChild(ctxBtn('No other groups', '', null, { muted: true }));
-  targets.forEach(c => {
-    const tab = state.tabs.find(t => t.id === c.tabId);
-    const label = tab && tab.id !== state.activeTabId ? `${tab.name} · ${c.name}` : c.name;
-    menu.appendChild(ctxBtn(label, '📁', () => { closeContextMenu(); moveHw(_ctx?.id ?? hw.id, c.id, null); }));
+
+  const ordered = state.tabs.flatMap(tab =>
+    state.classes.filter(c => c.tabId === tab.id).map(c => ({ tab, cls: c })));
+  if (!ordered.length) menu.appendChild(ctxBtn('No groups', '', null, { muted: true }));
+
+  ordered.forEach(({ tab, cls }) => {
+    const label = tab.id !== state.activeTabId ? `${tab.name} · ${cls.name}` : cls.name;
+    menu.appendChild(ctxBtn(label, '📁', () => { closeContextMenu(); moveItems(keys, cls.id, null, null); }));
+    if (hasFolder) return;
+    state.folders.filter(f => f.classId === cls.id)
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      .forEach(f => menu.appendChild(ctxBtn(f.name, '📂',
+        () => { closeContextMenu(); moveItems(keys, cls.id, f.id, null); }, { indent: true })));
   });
   positionCtxMenu();
 }
 
 function renderCtxMoveClass() {
   const menu = document.getElementById('context-menu');
-  const cls = state.classes.find(c => c.id === _ctx.id);
-  if (!menu || !cls) return;
+  if (!menu || !_ctx) return;
+  const ids = _ctx.keys.map(k => splitKey(k)[1]);
+  const from = new Set(ids.map(cid => state.classes.find(c => c.id === cid)?.tabId));
   menu.innerHTML = '';
   menu.appendChild(ctxBtn('Back', '‹', () => renderCtxRoot()));
   menu.appendChild(ctxDivider());
-  const targets = state.tabs.filter(t => t.id !== cls.tabId);
+  const targets = state.tabs.filter(t => !(from.size === 1 && from.has(t.id)));
   if (!targets.length) menu.appendChild(ctxBtn('No other spaces', '', null, { muted: true }));
-  const id = _ctx.id;
-  targets.forEach(t => menu.appendChild(ctxBtn(t.name, '🗂', () => { closeContextMenu(); moveClass(id, t.id, null); })));
+  targets.forEach(t => menu.appendChild(ctxBtn(t.name, '🗂',
+    () => { closeContextMenu(); moveClasses(ids, t.id, null); })));
   positionCtxMenu();
 }
 
@@ -1277,7 +1806,7 @@ function closeLightbox() {
   document.body.style.overflow = '';
 }
 
-function buildHwItem(hw) {
+function buildHwItem(hw, draggable = false) {
   const item = document.createElement('div');
   const hasMultiLineNotes = hw.notes && hw.notes.includes('\n');
   const hasAttachments = !!(hw.attachments && hw.attachments.length);
@@ -1321,6 +1850,7 @@ function buildHwItem(hw) {
       ${dlHtml}
     </div>
   `;
+  if (draggable) attachDrag(item, 'hw', hw.id);
   return item;
 }
 
@@ -1619,7 +2149,7 @@ function selectSwatch(color) {
 /* =============================================================================
    HOMEWORK MODAL
    ============================================================================= */
-function openHwModal(preselectedClassId = null) {
+function openHwModal(preselectedClassId = null, preselectedFolderId = null) {
   if (state.classes.length === 0) {
     toast('Add some topics first in Settings.', 'warning');
     return;
@@ -1627,6 +2157,7 @@ function openHwModal(preselectedClassId = null) {
   document.getElementById('hw-form').reset();
   document.getElementById('hw-reminder').value = '';
   document.getElementById('hw-edit-id').value = '';
+  document.getElementById('hw-folder-id').value = preselectedFolderId || '';
   document.getElementById('hw-modal-title').textContent = 'New Assignment';
   document.getElementById('hw-form-submit').textContent = 'Add to Schedule';
   document.getElementById('hw-reminder-group').classList.add('hidden');
@@ -1879,6 +2410,7 @@ async function handleAddHomework(e) {
     deadlineTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
 
+  const folderId    = document.getElementById('hw-folder-id').value;
   const reminderVal = document.getElementById('hw-reminder').value;
   const remindBefore = deadline && reminderVal !== '' ? parseInt(reminderVal) : null;
 
@@ -1899,6 +2431,7 @@ async function handleAddHomework(e) {
     .map(({ name, type, url, storagePath }) => ({ name, type, url, storagePath }));
   const payload = {
     classId, description,
+    ...(!editId && folderId && state.folders.some(f => f.id === folderId && f.classId === classId) && { folderId }),
     ...(notes             && { notes }),
     ...(attachments.length && { attachments }),
     ...(deadline          && { deadline }),
@@ -1911,6 +2444,10 @@ async function handleAddHomework(e) {
   try {
     if (editId) {
       // ---- EDIT MODE ----
+      // Folders belong to one group, so moving an assignment out of its group
+      // through this form has to drop it out of whatever folder it was in.
+      const before = state.homework.find(h => h.id === editId);
+      if (before && before.folderId && before.classId !== classId) payload.folderId = null;
       const updated = await api.homework.update(editId, payload);
       const i = state.homework.findIndex(h => h.id === editId);
       if (i !== -1) state.homework[i] = { ...state.homework[i], ...updated };
@@ -1986,6 +2523,7 @@ async function handleClassFormSubmit(e) {
           })) throw new Error(CANCELLED);
           await api.classes.remove(gone);
           state.classes  = state.classes.filter(c => c.id !== gone);
+          state.folders  = state.folders.filter(f => f.classId !== gone);
           state.homework = state.homework.filter(h => h.classId !== gone);
           renderSettingsClassList(); renderSchedule(); renderSummary();
           toast(`Removed ${addedLabel.toLowerCase()} "${data.name}"`, 'info');
@@ -2044,6 +2582,7 @@ async function handleAddTab(e) {
         await api.tabs.remove(gone);
         state.tabs     = state.tabs.filter(t => t.id !== gone);
         state.classes  = state.classes.filter(c => c.tabId !== gone);
+        state.folders  = state.folders.filter(f => !clsIds.includes(f.classId));
         state.homework = state.homework.filter(h => !clsIds.includes(h.classId));
         if (state.activeTabId === gone) {
           state.activeTabId = state.tabs.some(t => t.id === prevActiveTabId)
@@ -2088,6 +2627,7 @@ async function handleDeleteTab(tabId) {
     const clsIds = tabCls.map(c => c.id);
     state.tabs     = state.tabs.filter(t => t.id !== tabId);
     state.classes  = state.classes.filter(c => c.tabId !== tabId);
+    state.folders  = state.folders.filter(f => !clsIds.includes(f.classId));
     state.homework = state.homework.filter(h => !clsIds.includes(h.classId));
     if (state.activeTabId === tabId) state.activeTabId = state.tabs.filter(t => t.id !== tabId)[0]?.id ?? null;
 
@@ -2118,6 +2658,7 @@ async function handleDeleteTab(tabId) {
         const rClsIds = state.classes.filter(c => c.tabId === r.id).map(c => c.id);
         state.tabs     = state.tabs.filter(t => t.id !== r.id);
         state.classes  = state.classes.filter(c => c.tabId !== r.id);
+        state.folders  = state.folders.filter(f => !rClsIds.includes(f.classId));
         state.homework = state.homework.filter(h => !rClsIds.includes(h.classId));
         if (state.activeTabId === r.id) state.activeTabId = state.tabs.filter(t => t.id !== r.id)[0]?.id ?? null;
         renderTabBar(); renderSchedule(); renderSummary();
@@ -2165,89 +2706,367 @@ async function handleMarkComplete(hwId) {
   } catch (err) { toast(`Error: ${err.message}`, 'error'); }
 }
 
-async function handleDeleteHw(hwId) {
-  const hw = state.homework.find(h => h.id === hwId);
-  if (!hw) return;
-  if (!await showConfirm({ title: `Delete "${hw.description}"?`, confirmText: 'Delete', icon: '🗑️' })) return;
+/* -----------------------------------------------------------------------------
+   DELETE — assignments and folders
 
-  try {
-    await api.homework.remove(hwId);
-    state.homework = state.homework.filter(h => h.id !== hwId);
-    renderSchedule();
-    renderSummary();
-    toast(`Deleted "${hw.description}"`, 'info');
+   One code path for a single right-click delete and for a whole selection. A
+   folder in the pile takes its contents with it; use Disband to keep them.
+   ----------------------------------------------------------------------------- */
+async function deleteItems(keys) {
+  const { folders, hw } = itemsInKeys(keys);
+  if (!folders.length && !hw.length) return;
 
-    // Attachments are already gone from Storage, so they can't come back — but
-    // `completed` has to survive, or undo puts finished work back on the board.
-    const { id: _id, createdAt: _ca, attachments: _att, ...restoreFields } = hw;
-    const action = {
-      restoredId: null,
-      async undo() {
-        const restored = await api.homework.create(restoreFields);
-        this.restoredId = restored.id;
-        state.homework.push(restored);
-        renderSchedule(); renderSummary();
-        toast(`Restored "${hw.description}"`, 'success');
-      },
-      async redo() {
-        if (!this.restoredId) return;
-        await api.homework.remove(this.restoredId);
-        state.homework = state.homework.filter(h => h.id !== this.restoredId);
-        renderSchedule(); renderSummary();
-        toast(`Deleted "${hw.description}"`, 'info');
-      }
-    };
-    history.push(action);
-  } catch (err) { toast(`Error: ${err.message}`, 'error'); }
-}
-
-async function handleDeleteClass(classId) {
-  const cls   = state.classes.find(c => c.id === classId);
-  if (!cls) return;
-  const clsHw = state.homework.filter(h => h.classId === classId);
   // Count only what's actually on the board. Completed assignments get deleted
   // too, but they're hidden from every view, so naming them here only raises
   // questions about assignments the user has no way to go and look at.
-  const active    = clsHw.filter(h => !h.completed).length;
-  const clsSubMsg = active
-    ? `This will also delete ${active} assignment${active === 1 ? '' : 's'}.`
-    : '';
-  const label = tabItemLabel(cls.tabId);
-  if (!await showConfirm({ title: `Delete "${cls.name}"?`, message: clsSubMsg, confirmText: `Delete ${label}`, icon: '🗑️' })) return;
+  const active   = hw.filter(h => !h.completed).length;
+  const single   = keys.length === 1;
+  const title = single && folders.length ? `Delete folder "${folders[0].name}"?`
+              : single && hw.length      ? `Delete "${hw[0].description}"?`
+              :                            `Delete ${keys.length} items?`;
+  const counts = [
+    folders.length ? `${folders.length} folder${folders.length === 1 ? '' : 's'}` : '',
+    active         ? `${active} assignment${active === 1 ? '' : 's'}`             : ''
+  ].filter(Boolean).join(' and ');
+  const message = folders.length
+    ? `This deletes ${counts}, including everything inside the folder${folders.length === 1 ? '' : 's'}. Disband a folder instead to keep its assignments.`
+    : single ? '' : `This deletes ${counts}.`;
+
+  if (!await showConfirm({ title, message, confirmText: single ? 'Delete' : `Delete ${keys.length} Items`, icon: '🗑️' })) return;
 
   try {
-    await api.classes.remove(classId);
-    state.classes  = state.classes.filter(c => c.id !== classId);
-    state.homework = state.homework.filter(h => h.classId !== classId);
-    renderSettingsClassList(); renderSchedule(); renderSummary();
-    toast(`Deleted ${label} "${cls.name}"`, 'info');
+    await Promise.all(hw.filter(h => h.attachments?.length).map(h => deleteAttachments(h.attachments)));
+    await batchDelete([
+      ...folders.map(f => userCol('folders').doc(f.id)),
+      ...hw.map(h => userCol('homework').doc(h.id))
+    ]);
 
-    const { id: _id, createdAt: _ca, ...clsFields } = cls;
-    // Keep `completed`/`completedAt`: dropping them resurrected every completed
-    // assignment as active, dumping old work back onto the board on undo.
-    const hwSnaps = clsHw.map(({ id: _i, classId: _c, createdAt: _c2, ...f }) => f);
-    const action = {
-      restoredClassId: null,
+    const goneF = new Set(folders.map(f => f.id));
+    const goneH = new Set(hw.map(h => h.id));
+    state.folders  = state.folders.filter(f => !goneF.has(f.id));
+    state.homework = state.homework.filter(h => !goneH.has(h.id));
+    clearSelection();
+    renderSchedule();
+    renderSummary();
+    toast(single && hw.length && !folders.length ? `Deleted "${hw[0].description}"`
+        : single && folders.length              ? `Deleted folder "${folders[0].name}"`
+        : `Deleted ${keys.length} items`, 'info');
+
+    /* Attachments are already gone from Storage, so they can't come back — but
+       `completed` has to survive, or undo puts finished work back on the board.
+       Folders come back under their original ids, because every assignment being
+       restored alongside them still points at that id through `folderId`. */
+    const folderSnaps = folders.map(({ createdAt: _c, ...f }) => f);
+    const hwSnaps     = hw.map(({ id: _i, createdAt: _c, attachments: _a, ...f }) => f);
+    history.push({
+      liveHwIds: [],
       async undo() {
-        const restored = await api.classes.create(clsFields);
-        this.restoredClassId = restored.id;
-        state.classes.push(restored);
-        const restoredHw = await Promise.all(hwSnaps.map(f => api.homework.create({ ...f, classId: restored.id })));
-        state.homework.push(...restoredHw);
-        renderSettingsClassList(); renderSchedule(); renderSummary();
-        toast(`Restored ${label} "${cls.name}"`, 'success');
+        const rf = await Promise.all(folderSnaps.map(f => api.folders.create(f)));
+        state.folders.push(...rf);
+        const rh = await Promise.all(hwSnaps.map(f => api.homework.create(f)));
+        this.liveHwIds = rh.map(h => h.id);
+        state.homework.push(...rh);
+        renderSchedule(); renderSummary();
+        toast(single ? 'Restored' : `Restored ${keys.length} items`, 'success');
       },
       async redo() {
-        if (!this.restoredClassId) return;
-        await api.classes.remove(this.restoredClassId);
-        state.classes  = state.classes.filter(c => c.id !== this.restoredClassId);
-        state.homework = state.homework.filter(h => h.classId !== this.restoredClassId);
-        renderSettingsClassList(); renderSchedule(); renderSummary();
-        toast(`Deleted ${label} "${cls.name}"`, 'info');
+        await batchDelete([
+          ...this.liveHwIds.map(id => userCol('homework').doc(id)),
+          ...folderSnaps.map(f => userCol('folders').doc(f.id))
+        ]);
+        const liveH = new Set(this.liveHwIds);
+        const liveF = new Set(folderSnaps.map(f => f.id));
+        state.homework = state.homework.filter(h => !liveH.has(h.id));
+        state.folders  = state.folders.filter(f => !liveF.has(f.id));
+        renderSchedule(); renderSummary();
+        toast(single ? 'Deleted' : `Deleted ${keys.length} items`, 'info');
       }
-    };
-    history.push(action);
+    });
   } catch (err) { toast(`Error: ${err.message}`, 'error'); }
+}
+
+function handleDeleteHw(hwId) { return deleteItems([selKey('hw', hwId)]); }
+
+/* -----------------------------------------------------------------------------
+   DELETE — groups
+   ----------------------------------------------------------------------------- */
+async function deleteClasses(ids) {
+  const classes = ids.map(id => state.classes.find(c => c.id === id)).filter(Boolean);
+  if (!classes.length) return;
+  const idSet   = new Set(classes.map(c => c.id));
+  const folders = state.folders.filter(f => idSet.has(f.classId));
+  const clsHw   = state.homework.filter(h => idSet.has(h.classId));
+  const active  = clsHw.filter(h => !h.completed).length;
+  const single  = classes.length === 1;
+  const label   = tabItemLabel(classes[0].tabId);
+
+  const subMsg = active ? `This will also delete ${active} assignment${active === 1 ? '' : 's'}.` : '';
+  if (!await showConfirm({
+    title:       single ? `Delete "${classes[0].name}"?` : `Delete ${classes.length} groups?`,
+    message:     subMsg,
+    confirmText: single ? `Delete ${label}` : `Delete ${classes.length} Groups`,
+    icon: '🗑️'
+  })) return;
+
+  try {
+    for (const c of classes) await api.classes.remove(c.id);
+    state.classes  = state.classes.filter(c => !idSet.has(c.id));
+    state.folders  = state.folders.filter(f => !idSet.has(f.classId));
+    state.homework = state.homework.filter(h => !idSet.has(h.classId));
+    clearSelection();
+    renderSettingsClassList(); renderSchedule(); renderSummary();
+    toast(single ? `Deleted ${label} "${classes[0].name}"` : `Deleted ${classes.length} groups`, 'info');
+
+    // Groups come back with fresh ids, so everything that pointed at one has to
+    // be re-pointed. Folders keep their own ids — the assignments being restored
+    // beside them still reference those through `folderId`.
+    const clsSnaps    = classes.map(({ id, createdAt: _c, ...f }) => ({ origId: id, fields: f }));
+    const folderSnaps = folders.map(({ classId, createdAt: _c, ...f }) => ({ origClassId: classId, fields: f }));
+    const hwSnaps     = clsHw.map(({ id: _i, classId, createdAt: _c, attachments: _a, ...f }) => ({ origClassId: classId, fields: f }));
+    history.push({
+      liveClassIds: [],
+      async undo() {
+        const map = {}, restored = [];
+        for (const c of clsSnaps) {
+          const r = await api.classes.create(c.fields);
+          map[c.origId] = r.id;
+          restored.push(r);
+        }
+        state.classes.push(...restored);
+        this.liveClassIds = restored.map(c => c.id);
+        const rf = await Promise.all(folderSnaps.map(f => api.folders.create({ ...f.fields, classId: map[f.origClassId] })));
+        state.folders.push(...rf);
+        const rh = await Promise.all(hwSnaps.map(h => api.homework.create({ ...h.fields, classId: map[h.origClassId] })));
+        state.homework.push(...rh);
+        resortClasses();
+        renderSettingsClassList(); renderSchedule(); renderSummary();
+        toast(single ? `Restored ${label} "${classes[0].name}"` : `Restored ${classes.length} groups`, 'success');
+      },
+      async redo() {
+        if (!this.liveClassIds.length) return;
+        const live = new Set(this.liveClassIds);
+        for (const id of this.liveClassIds) await api.classes.remove(id);
+        state.classes  = state.classes.filter(c => !live.has(c.id));
+        state.folders  = state.folders.filter(f => !live.has(f.classId));
+        state.homework = state.homework.filter(h => !live.has(h.classId));
+        renderSettingsClassList(); renderSchedule(); renderSummary();
+        toast(single ? `Deleted ${label} "${classes[0].name}"` : `Deleted ${classes.length} groups`, 'info');
+      }
+    });
+  } catch (err) { toast(`Error: ${err.message}`, 'error'); }
+}
+
+function handleDeleteClass(classId) { return deleteClasses([classId]); }
+
+/* =============================================================================
+   FOLDERS
+
+   A folder is a labelled box inside a group. It sits in the group's own ordering
+   next to loose assignments, moves as one piece, and can be taken apart two
+   ways: disband drops the label and leaves the assignments in place, delete
+   takes the assignments with it.
+   ============================================================================= */
+function promptFolderName({ title, value = '', submitText = 'Create Folder' }) {
+  return new Promise(resolve => {
+    const modal    = document.getElementById('folder-form-modal');
+    const form     = document.getElementById('folder-form');
+    const input    = document.getElementById('folder-name');
+    const backdrop = document.getElementById('folder-form-backdrop');
+    const cancel   = document.getElementById('cancel-folder-form');
+    const closeBtn = document.getElementById('close-folder-form');
+
+    document.getElementById('folder-form-title').textContent  = title;
+    document.getElementById('folder-form-submit').textContent = submitText;
+    input.value = value;
+
+    modal.classList.add('modal--open');
+    requestAnimationFrame(() => { input.focus(); input.select(); });
+
+    function cleanup(result) {
+      modal.classList.remove('modal--open');
+      form.removeEventListener('submit', onSubmit);
+      backdrop.removeEventListener('click', onCancel);
+      cancel.removeEventListener('click', onCancel);
+      closeBtn.removeEventListener('click', onCancel);
+      document.removeEventListener('keydown', onKey, true);
+      resolve(result);
+    }
+    function onSubmit(e) {
+      e.preventDefault();
+      const name = input.value.trim();
+      if (!name) { input.focus(); return; }
+      cleanup(name);
+    }
+    function onCancel() { cleanup(null); }
+    function onKey(e)   { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cleanup(null); } }
+
+    form.addEventListener('submit', onSubmit);
+    backdrop.addEventListener('click', onCancel);
+    cancel.addEventListener('click', onCancel);
+    closeBtn.addEventListener('click', onCancel);
+    document.addEventListener('keydown', onKey, true);
+  });
+}
+
+async function promptNewFolder(classId, itemKeys = []) {
+  const hwKeys = itemKeys.filter(k => k.startsWith('hw:'));
+  const first  = hwKeys.map(k => state.homework.find(h => h.id === k.slice(3))).find(Boolean);
+  const target = classId || first?.classId;
+  if (!target) return;
+  const name = await promptFolderName({ title: 'New Folder' });
+  if (name === null) return;
+  await createFolder(target, name, hwKeys);
+}
+
+async function promptRenameFolder(folderId) {
+  const folder = state.folders.find(f => f.id === folderId);
+  if (!folder) return;
+  const name = await promptFolderName({ title: 'Rename Folder', value: folder.name, submitText: 'Save' });
+  if (name === null || name === folder.name) return;
+  const prev = folder.name;
+  const set = async n => {
+    await api.folders.update(folderId, { name: n });
+    const f = state.folders.find(x => x.id === folderId);
+    if (f) f.name = n;
+    renderSchedule();
+  };
+  try {
+    await set(name);
+    toast(`Renamed folder to "${name}"`, 'success');
+    history.push({
+      async undo() { await set(prev); toast(`Renamed folder back to "${prev}"`, 'info'); },
+      async redo() { await set(name); toast(`Renamed folder to "${name}"`, 'success'); }
+    });
+  } catch (err) { toast(`Error: ${err.message}`, 'error'); }
+}
+
+/* Create a folder and, optionally, sweep a set of assignments into it. The folder
+   lands where the first of those assignments was sitting, so the group's layout
+   doesn't jump around underneath the user. */
+async function createFolder(classId, name, hwKeys = []) {
+  const moving = hwKeys.map(k => state.homework.find(h => h.id === k.slice(3))).filter(Boolean);
+  const affected = new Set([classId, ...moving.map(h => h.classId)]);
+  const before   = snapshotBoard(affected, moving.map(h => h.id));
+
+  const prevHwOrders = new Map(), prevFolderOrders = new Map();
+  state.homework.forEach(h => { if (affected.has(h.classId)) prevHwOrders.set(h.id, h.order); });
+  state.folders.forEach(f  => { if (affected.has(f.classId)) prevFolderOrders.set(f.id, f.order); });
+
+  const id     = api.folders.newId();
+  const folder = { id, classId, name: name.trim() || 'New Folder', order: 0 };
+  const movingKeys = new Set(moving.map(h => selKey('hw', h.id)));
+
+  const top  = groupChildren(classId);
+  const at   = top.findIndex(c => movingKeys.has(selKey(c.type, c.id)));
+  const rest = top.filter(c => !movingKeys.has(selKey(c.type, c.id)));
+  state.folders.push(folder);
+  rest.splice(at === -1 ? rest.length : at, 0, { type: 'fd', id, ref: folder });
+  rest.forEach((c, i) => { c.ref.order = i; });
+
+  const hwData = new Map();
+  moving.forEach((h, i) => {
+    const data = { folderId: id };
+    if (h.classId !== classId) data.classId = classId;
+    hwData.set(h.id, data);
+    h.classId = classId; h.folderId = id; h.order = i;
+  });
+
+  clearSelection();
+  renderSchedule();
+  renderSummary();
+
+  try {
+    await api.folders.create({ id, classId, name: folder.name, order: folder.order });
+    prevFolderOrders.set(id, folder.order); // just written — don't write it twice
+    await persistPlacement([...affected], prevHwOrders, prevFolderOrders, hwData, new Map());
+
+    const after = snapshotBoard(affected, moving.map(h => h.id));
+    const focus = hwKeys[0] || selKey('fd', id);
+    toast(`Created folder "${folder.name}"`, 'success');
+    history.push({
+      async undo() {
+        // Empty it before the doc goes, so the restore isn't laying assignments
+        // back into a folder that is about to stop existing.
+        state.folders = state.folders.filter(f => f.id !== id);
+        await restoreBoard(before, focus);
+        await api.folders.remove(id);
+        renderSchedule();
+        toast(`Removed folder "${folder.name}"`, 'info');
+      },
+      async redo() {
+        await api.folders.create({ id, classId, name: folder.name, order: folder.order });
+        if (!state.folders.some(f => f.id === id)) state.folders.push({ ...folder });
+        await restoreBoard(after, focus);
+        toast(`Created folder "${folder.name}"`, 'success');
+      }
+    });
+  } catch (err) {
+    state.folders = state.folders.filter(f => f.id !== id);
+    applyBoardLocally(before);
+    renderSchedule();
+    renderSummary();
+    toast(`Could not create folder: ${err.message}`, 'error');
+  }
+}
+
+/* Disband — drop the label, leave the assignments exactly where they sat, in the
+   order they were in, spliced into the group at the folder's own position. */
+async function disbandFolder(folderId) {
+  const folder = state.folders.find(f => f.id === folderId);
+  if (!folder) return;
+  const classId = folder.classId;
+  const kids    = state.homework.filter(h => h.folderId === folderId);
+  const before  = snapshotBoard([classId], kids.map(h => h.id));
+  const snapshot = { id: folderId, classId, name: folder.name, order: folder.order ?? 0 };
+
+  const prevHwOrders = new Map(), prevFolderOrders = new Map();
+  state.homework.forEach(h => { if (h.classId === classId) prevHwOrders.set(h.id, h.order); });
+  state.folders.forEach(f  => { if (f.classId === classId) prevFolderOrders.set(f.id, f.order); });
+
+  const top   = groupChildren(classId);
+  const at    = top.findIndex(c => c.type === 'fd' && c.id === folderId);
+  const rest  = top.filter(c => !(c.type === 'fd' && c.id === folderId));
+  const inner = folderChildren(folderId);
+  rest.splice(at === -1 ? rest.length : at, 0, ...inner);
+
+  const hwData = new Map();
+  kids.forEach(h => { hwData.set(h.id, { folderId: null }); h.folderId = null; });
+  state.folders = state.folders.filter(f => f.id !== folderId);
+  rest.forEach((c, i) => { c.ref.order = i; });
+
+  clearSelection();
+  renderSchedule();
+  renderSummary();
+
+  try {
+    await persistPlacement([classId], prevHwOrders, prevFolderOrders, hwData, new Map());
+    await api.folders.remove(folderId);
+    toast(`Disbanded folder "${folder.name}"`, 'info');
+
+    const after = snapshotBoard([classId], kids.map(h => h.id));
+    const focus = kids[0] ? selKey('hw', kids[0].id) : null;
+    history.push({
+      async undo() {
+        await api.folders.create(snapshot);
+        if (!state.folders.some(f => f.id === folderId)) state.folders.push({ ...snapshot });
+        await restoreBoard(before, focus);
+        toast(`Restored folder "${snapshot.name}"`, 'success');
+      },
+      async redo() {
+        state.folders = state.folders.filter(f => f.id !== folderId);
+        await restoreBoard(after, focus);
+        await api.folders.remove(folderId);
+        renderSchedule();
+        toast(`Disbanded folder "${snapshot.name}"`, 'info');
+      }
+    });
+  } catch (err) {
+    state.folders.push({ ...snapshot });
+    applyBoardLocally(before);
+    renderSchedule();
+    renderSummary();
+    toast(`Could not disband folder: ${err.message}`, 'error');
+  }
 }
 
 /* =============================================================================
@@ -2262,6 +3081,7 @@ function downloadSchedule() {
     exportedAt: new Date().toISOString(),
     tabs: state.tabs.map(({ id, createdAt: _c, ...rest }) => ({ _origId: id, ...rest })),
     classes: state.classes.map(({ id, createdAt: _c, ...rest }) => ({ _origId: id, ...rest })),
+    folders: state.folders.map(({ id, createdAt: _c, ...rest }) => ({ _origId: id, ...rest })),
     homework: state.homework
       .filter(h => !h.completed)
       .map(({ id, createdAt: _c, completed: _co, ...rest }) => ({ _origId: id, ...rest }))
@@ -2294,11 +3114,13 @@ async function loadSchedule(file) {
   try {
     // Delete all existing data
     await Promise.all(state.homework.map(h => api.homework.remove(h.id)));
+    await Promise.all(state.folders.map(f => api.folders.remove(f.id)));
     await Promise.all(state.classes.map(c => api.classes.remove(c.id)));
     await Promise.all(state.tabs.map(t => api.tabs.remove(t.id)));
 
     state.tabs     = [];
     state.classes  = [];
+    state.folders  = [];
     state.homework = [];
 
     // Rebuild with new IDs, tracking the old→new mapping
@@ -2320,13 +3142,27 @@ async function loadSchedule(file) {
       clsIdMap[_origId] = created.id;
     }
 
-    for (const h of (data.homework || [])) {
-      const { _origId, classId, ...body } = h;
+    const folderIdMap = {};
+    for (const f of (data.folders || [])) {
+      const { _origId, classId, ...body } = f;
       const newClassId = clsIdMap[classId];
       if (!newClassId) continue;
-      const created = await api.homework.create({ ...body, classId: newClassId });
+      const created = await api.folders.create({ ...body, classId: newClassId });
+      state.folders.push(created);
+      folderIdMap[_origId] = created.id;
+    }
+
+    for (const h of (data.homework || [])) {
+      const { _origId, classId, folderId, ...body } = h;
+      const newClassId = clsIdMap[classId];
+      if (!newClassId) continue;
+      const created = await api.homework.create({
+        ...body, classId: newClassId,
+        ...(folderId && folderIdMap[folderId] && { folderId: folderIdMap[folderId] })
+      });
       state.homework.push(created);
     }
+    resortClasses();
 
     if (!state.activeTabId || !state.tabs.find(t => t.id === state.activeTabId)) {
       state.activeTabId = state.tabs[0]?.id ?? null;
@@ -2573,6 +3409,23 @@ function wireEvents() {
 
   document.getElementById('undo-btn').addEventListener('click', () => history.undo());
   document.getElementById('redo-btn').addEventListener('click', () => history.redo());
+
+  // Clicking away from the board drops the selection — but not onto the context
+  // menu or the selection bar, both of which are there to act on it.
+  document.addEventListener('click', e => {
+    if (!sel.ids.size) return;
+    if (e.target.closest('#classes-container, #context-menu, #selection-bar, .modal')) return;
+    clearSelection();
+  });
+  document.getElementById('selection-clear').addEventListener('click', clearSelection);
+  document.getElementById('selection-actions').addEventListener('click', e => {
+    // Same menu the right-click gives, anchored to the bar
+    const keys = selectionKeys();
+    if (!keys.length) return;
+    const [type, id] = splitKey(keys[0]);
+    const r = e.currentTarget.getBoundingClientRect();
+    openContextMenu(r.left, r.top - 8, type === 'fd' ? 'folder' : type === 'cls' ? 'class' : 'hw', id);
+  });
 
   document.getElementById('hw-form').addEventListener('submit', handleAddHomework);
   document.getElementById('close-hw-modal').addEventListener('click', closeHwModal);
@@ -2879,13 +3732,19 @@ function wireEvents() {
     if (cb) handleMarkComplete(cb.dataset.hwId);
   });
 
-  // Custom context menu — desktop right-click
+  // Shift-click builds a selection, so don't let it also sweep a text highlight
+  // across everything it touches.
   const board = document.getElementById('classes-container');
+  board.addEventListener('mousedown', e => { if (e.shiftKey) e.preventDefault(); });
+
+  // Custom context menu — desktop right-click
   board.addEventListener('contextmenu', e => {
-    const hwItem = e.target.closest('.hw-item');
-    const row    = e.target.closest('.class-row');
-    if (hwItem)   { e.preventDefault(); openContextMenu(e.clientX, e.clientY, 'hw',    hwItem.dataset.hwId); }
-    else if (row) { e.preventDefault(); openContextMenu(e.clientX, e.clientY, 'class', row.dataset.classId); }
+    const hwItem   = e.target.closest('.hw-item');
+    const folderEl = e.target.closest('.folder-header') && e.target.closest('.folder');
+    const row      = e.target.closest('.class-row');
+    if (hwItem)        { e.preventDefault(); openContextMenu(e.clientX, e.clientY, 'hw',     hwItem.dataset.hwId); }
+    else if (folderEl) { e.preventDefault(); openContextMenu(e.clientX, e.clientY, 'folder', folderEl.dataset.folderId); }
+    else if (row)      { e.preventDefault(); openContextMenu(e.clientX, e.clientY, 'class',  row.dataset.classId); }
   });
 
   // Custom context menu — touch long-press (excludes drag handles + controls)
@@ -2893,10 +3752,14 @@ function wireEvents() {
   const cancelLP = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
   board.addEventListener('pointerdown', e => {
     if (e.pointerType !== 'touch') return;
-    if (e.target.closest('.hw-drag-handle, .class-drag-handle, button, a, input, label')) return;
-    const hwItem = e.target.closest('.hw-item');
-    const row    = e.target.closest('.class-row');
-    const target = hwItem ? ['hw', hwItem.dataset.hwId] : row ? ['class', row.dataset.classId] : null;
+    if (e.target.closest('.hw-drag-handle, .class-drag-handle, .folder-drag-handle, button, a, input, label')) return;
+    const hwItem   = e.target.closest('.hw-item');
+    const folderEl = e.target.closest('.folder-header') && e.target.closest('.folder');
+    const row      = e.target.closest('.class-row');
+    const target = hwItem   ? ['hw',     hwItem.dataset.hwId]
+                 : folderEl ? ['folder', folderEl.dataset.folderId]
+                 : row      ? ['class',  row.dataset.classId]
+                 : null;
     if (!target) return;
     lpXY = { x: e.clientX, y: e.clientY };
     lpTimer = setTimeout(() => {
@@ -2914,12 +3777,52 @@ function wireEvents() {
   board.addEventListener('pointerup',     cancelLP);
   board.addEventListener('pointercancel', cancelLP);
   document.getElementById('classes-container').addEventListener('click', e => {
-    const editBtn  = e.target.closest('.hw-edit-btn');
-    const delBtn   = e.target.closest('.hw-delete');
-    const addBtn   = e.target.closest('.class-add-hw-btn');
-    if (editBtn) { openHwEditModal(editBtn.dataset.hwId); return; }
-    if (delBtn)  { handleDeleteHw(delBtn.dataset.hwId);   return; }
-    if (addBtn)  { openHwModal(addBtn.dataset.classId);   return; }
+    // Ctrl/Cmd- and Shift-click build a selection instead of doing whatever the
+    // click would normally do to the thing under the cursor.
+    const mod = e.metaKey || e.ctrlKey;
+    // A modifier held over a control still means the control: Ctrl-clicking a
+    // checkbox marks the assignment done rather than half-selecting it.
+    if ((mod || e.shiftKey) && !e.target.closest('button, a, input, label')) {
+      const target = e.target.closest('.hw-item, .folder-header, .class-header');
+      if (target) {
+        e.preventDefault();
+        const key = target.classList.contains('hw-item')     ? selKey('hw', target.dataset.hwId)
+                  : target.classList.contains('folder-header') ? selKey('fd', target.closest('.folder').dataset.folderId)
+                  :                                              selKey('cls', target.closest('.class-row').dataset.classId);
+        handleSelectClick(key, mod, e.shiftKey);
+        return;
+      }
+    }
+    // Any other click on the board drops the selection, the way clicking away
+    // from a selection does everywhere else.
+    if (sel.ids.size && !e.target.closest('button, a, input, label')) clearSelection();
+
+    const editBtn   = e.target.closest('.hw-edit-btn');
+    const delBtn    = e.target.closest('.hw-delete');
+    const addBtn    = e.target.closest('.class-add-hw-btn');
+    const folderAdd = e.target.closest('.folder-add-btn');
+    if (editBtn)   { openHwEditModal(editBtn.dataset.hwId); return; }
+    if (delBtn)    { handleDeleteHw(delBtn.dataset.hwId);   return; }
+    if (addBtn)    { openHwModal(addBtn.dataset.classId);   return; }
+    if (folderAdd) {
+      const folder = state.folders.find(f => f.id === folderAdd.dataset.folderId);
+      if (folder) openHwModal(folder.classId, folder.id);
+      return;
+    }
+
+    // Toggle a folder open/closed (click anywhere on its header)
+    const folderHeader = e.target.closest('.folder-header');
+    if (folderHeader && !e.target.closest('.folder-drag-handle')) {
+      const el = folderHeader.closest('.folder');
+      const collapsed = el.classList.toggle('folder--collapsed');
+      folderHeader.querySelector('.folder-toggle-btn').textContent = collapsed ? '▸' : '▾';
+      folderHeader.querySelector('.folder-toggle-btn').setAttribute('aria-expanded', String(!collapsed));
+      folderHeader.querySelector('.folder-icon').textContent = collapsed ? '📁' : '📂';
+      const ids = new Set(prefs.get('collapsedFolders', []));
+      if (collapsed) ids.add(el.dataset.folderId); else ids.delete(el.dataset.folderId);
+      prefs.set('collapsedFolders', [...ids]);
+      return;
+    }
 
     // Attachment image → lightbox
     const attachImg = e.target.closest('.hw-attach-img');
@@ -3009,6 +3912,7 @@ function wireEvents() {
     if (mod && !typing && (e.key==='y' || (e.key==='z' && e.shiftKey))) { e.preventDefault(); history.redo(); return; }
     if (e.key==='Escape') {
       if (!document.getElementById('lightbox').classList.contains('hidden')) { closeLightbox(); return; }
+      if (sel.ids.size && !document.querySelector('.modal--open')) { clearSelection(); return; }
       closeHwModal(); closeSettings(); closeGroupForm();
       closeModal('whats-new-modal'); closeModal('privacy-modal');
     }
@@ -3036,14 +3940,17 @@ async function init() {
   document.getElementById('empty-state').classList.add('hidden');
 
   try {
-    const [tabs, classes, homework] = await Promise.all([
+    const [tabs, classes, folders, homework] = await Promise.all([
       api.tabs.list(),
       api.classes.list(),
+      api.folders.list(),
       api.homework.list()
     ]);
     state.tabs     = tabs;
     state.classes  = classes;
+    state.folders  = folders;
     state.homework = homework;
+    resortClasses();
     _lastRefresh   = Date.now();
     if (!state.activeTabId || !tabs.find(t => t.id === state.activeTabId)) {
       state.activeTabId = tabs[0]?.id ?? null;
@@ -3140,13 +4047,15 @@ async function refreshFromServer() {
 
   _refreshing = true;
   try {
-    const [tabs, classes, homework] = await Promise.all([
-      api.tabs.list(), api.classes.list(), api.homework.list()
+    const [tabs, classes, folders, homework] = await Promise.all([
+      api.tabs.list(), api.classes.list(), api.folders.list(), api.homework.list()
     ]);
     _lastRefresh   = Date.now();
     state.tabs     = tabs;
     state.classes  = classes;
+    state.folders  = folders;
     state.homework = homework;
+    resortClasses();
     if (!state.activeTabId || !tabs.find(t => t.id === state.activeTabId)) {
       state.activeTabId = tabs[0]?.id ?? null;
     }

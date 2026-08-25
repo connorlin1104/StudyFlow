@@ -98,15 +98,45 @@ Each signed-in user's data lives under their own UID:
 ```
 users/{uid}/tabs/{tabId}          # "spaces" in the UI
 users/{uid}/classes/{classId}     # "groups" in the UI
+users/{uid}/folders/{folderId}    # "folders" — mini-groups inside a group
 users/{uid}/homework/{hwId}       # "assignments" in the UI
 userPrefs/{uid}                   # notifyBefore, shared across devices
 pushSubscriptions/{subId}         # { uid, endpoint, keys, notifyBefore }
 ```
 
-`tabs`, `classes` and `homework` each carry an integer `order` field driving
-drag-to-reorder. Attachments are stored at
-`users/{uid}/hw-attachments/...` in Cloud Storage and referenced from the
-homework document.
+Every collection carries an integer `order` field driving drag-to-reorder.
+Attachments are stored at `users/{uid}/hw-attachments/...` in Cloud Storage and
+referenced from the homework document.
+
+### Ordering, and where folders fit
+
+A folder holds a subset of one group's assignments — `{ classId, name, order }`
+— and an assignment claims membership through an optional `folderId`. Nothing is
+nested in Firestore; the tree is entirely reconstructed from those two fields.
+
+A group's **top level** interleaves two collections: its folders, and the
+assignments with no `folderId`. Both draw positions from one shared `order`
+sequence, so `groupChildren()` in `app.js` merges them and `renumberClasses()`
+writes 0..n-1 back across both. The assignments **inside** a folder number
+themselves 0..n-1 within that folder, so an assignment's `order` means "position
+in my folder" or "position in my group" depending on whether `folderId` is set.
+
+Because the two halves of a group's top level live in different collections,
+neither one's indices are contiguous — which is why placement goes through
+`writeOrders()` (explicit `{ id, order }` entries) rather than `writeOrder()`
+(position = array index). `writeOrder` is now a thin wrapper over it, still used
+for spaces and the settings-panel reorders, where one collection owns the whole
+list.
+
+Folder ids are **client-generated**, unlike every other document here. Undoing a
+folder delete has to bring the same id back, because the assignments restored
+alongside it still point at that id through `folderId` — so
+`api.folders.create()` takes the id to write to.
+
+Deletes cascade in the browser: removing a group deletes its folders and their
+assignments, removing a space deletes everything under all of its groups. There
+is no server-side trigger to do it (see
+[Known Limitations](#known-limitations-on-the-spark-plan)).
 
 Firestore rules ensure users can only read and write their own documents.
 
