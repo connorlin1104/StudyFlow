@@ -10,6 +10,8 @@ on:
     # can be several minutes late under load, which is why the sender treats a
     # late reminder as still worth delivering rather than dropping it.
     - cron: '*/15 * * * *'
+    # In practice GitHub has fired this ~6 times a day, not 96, which is why a
+    # run no longer scans once and exits but stays up watching (WATCH_MINUTES).
   workflow_dispatch:
     inputs:
       mode:
@@ -22,8 +24,11 @@ on:
         type: boolean
         default: false
 
-# Never let a slow run overlap the next tick — two runs scanning at once could
-# both decide the same assignment is due and send it twice.
+# Never let two runs overlap — two senders at once could both decide the same
+# assignment is due and send it twice. Each run now watches for hours (see
+# WATCH_MINUTES), so the next scheduled run waits here and takes over the moment
+# this one exits. GitHub keeps only the newest waiting run, so older waiting
+# runs show up as "cancelled" in the Actions tab; that's expected.
 concurrency:
   group: studyflow-reminders
   cancel-in-progress: false
@@ -34,7 +39,8 @@ permissions:
 jobs:
   send:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # GitHub's hard cap for a job is 360; WATCH_MINUTES leaves room for setup.
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v7
 
@@ -56,10 +62,13 @@ jobs:
           VAPID_PRIVATE_KEY:        ${{ secrets.VAPID_PRIVATE_KEY }}
           MODE:                     ${{ inputs.mode }}
           DRY_RUN:                  ${{ inputs.dry_run }}
-          # How stale a reminder may be and still be worth sending. Past this it
-          # is marked as reminded without a push, so the first run after an
-          # outage doesn't deliver a backlog all at once.
+          # How stale a reminder may be and still be worth sending once its
+          # deadline has passed. Past this it is marked as reminded without a
+          # push, so the first run after an outage doesn't deliver a backlog.
           MAX_LATE_MINUTES:         '360'
+          # Stay up checking every 30s for this long rather than scanning once.
+          # Test and dry runs ignore it and exit after a single pass.
+          WATCH_MINUTES:            '345'
           # Only used for assignments saved before the client stored deadlineMs;
           # those carry a wall-clock time with no timezone attached.
           DEFAULT_TIMEZONE:         'America/Los_Angeles'

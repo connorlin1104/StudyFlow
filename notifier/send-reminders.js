@@ -169,29 +169,38 @@ async function pushToAll(subs, payload) {
 /* -----------------------------------------------------------------------------
    MAIN
    -------------------------------------------------------------------------- */
-async function processUser(db, uid, subs, now) {
-  /* notifyBefore is a per-user default that the client mirrors onto every
-     subscription; userPrefs is the source of truth, a subscription is the
-     migration fallback for users who set it before userPrefs existed. */
-  const prefDoc  = await db.collection('userPrefs').doc(uid).get();
+/* notifyBefore is a per-user default that the client mirrors onto every
+   subscription; userPrefs is the source of truth, a subscription is the
+   migration fallback for users who set it before userPrefs existed. */
+function userDefaultLead(prefDoc, subs) {
   const fallback = subs[0]?.data().notifyBefore;
-  const userDefault = prefDoc.exists && prefDoc.data().notifyBefore != null
+  return prefDoc?.exists && prefDoc.data().notifyBefore != null
     ? prefDoc.data().notifyBefore
     : (fallback ?? 60);
+}
 
-  const [hwSnap, classSnap] = await Promise.all([
+async function processUser(db, uid, subs, now) {
+  const [prefDoc, hwSnap, classSnap] = await Promise.all([
+    db.collection('userPrefs').doc(uid).get(),
     db.collection('users').doc(uid).collection('homework').get(),
     db.collection('users').doc(uid).collection('classes').get()
   ]);
   const classNames = new Map(classSnap.docs.map(d => [d.id, d.data().name]));
+  return remindDue(hwSnap.docs, subs, userDefaultLead(prefDoc, subs), classNames, now);
+}
 
+/* The "should this fire?" pass over one user's assignments. `fired` lets watch
+   mode skip an assignment it has just reminded before its listener has caught
+   up with the remindedAt write. */
+async function remindDue(hwDocs, subs, userDefault, classNames, now, fired = new Set()) {
   let sent = 0;
-  for (const doc of hwSnap.docs) {
+  for (const doc of hwDocs) {
     const hw = doc.data();
 
     if (hw.completed)        continue;
     if (hw.remindedAt)       continue;   // already fired; cleared when the deadline changes
     if (!hw.deadline)        continue;
+    if (fired.has(doc.ref.path)) continue;
 
     const remindBefore = hw.remindBefore ?? userDefault;
     if (remindBefore === -1) continue;   // "No reminder"
@@ -203,11 +212,16 @@ async function processUser(db, uid, subs, now) {
     if (now < remindAt) continue;        // not yet — a later run will catch it
 
     const late = now - remindAt;
-    if (late > MAX_LATE_MS) {
+    if (late > MAX_LATE_MS && now > dueMs) {
       /* Too old to be useful. Marking it stops the same assignment being
          reconsidered on every future run. This is also what suppresses
-         reminders on assignments created with an already-past deadline. */
-      if (!DRY_RUN) await doc.ref.update({ remindedAt: admin.firestore.FieldValue.serverTimestamp() });
+         reminders on assignments created with an already-past deadline.
+         A reminder whose deadline is still ahead is always worth sending,
+         however late — a missed "1 day before" is still news 8 hours on. */
+      if (!DRY_RUN) {
+        await doc.ref.update({ remindedAt: admin.firestore.FieldValue.serverTimestamp() });
+        fired.add(doc.ref.path);
+      }
       continue;
     }
 
@@ -223,10 +237,114 @@ async function processUser(db, uid, subs, now) {
     const { sent: delivered, settled } = await pushToAll(subs, payload);
     if (settled) {
       await doc.ref.update({ remindedAt: admin.firestore.FieldValue.serverTimestamp() });
+      fired.add(doc.ref.path);
       sent += delivered;
     }
   }
   return sent;
+}
+
+/* -----------------------------------------------------------------------------
+   WATCH MODE
+   GitHub treats a scheduled workflow's cron as a suggestion. The "every 15
+   minutes" schedule has in practice fired about six times a day, 1½–7½ hours
+   apart, so a scan-and-exit run delivered reminders hours late — usually after
+   the deadline they were reminding about.
+
+   So a run no longer scans once and exits: it stays up for WATCH_MINUTES,
+   holding Firestore listeners on each subscribed user's data and checking every
+   TICK_MS whether anything has come due. The next scheduled run queues behind
+   this one (see the workflow's concurrency group) and takes over as it exits,
+   so coverage is continuous even though the starts are erratic.
+
+   Listeners rather than re-querying each tick: a listener is billed for the
+   initial read and then only for documents that change, which keeps a
+   minute-by-minute check well inside the Spark plan's daily read quota.
+   -------------------------------------------------------------------------- */
+const TICK_MS = 30 * 1000;
+
+function watchUser(db, uid) {
+  const user = { prefDoc: null, hwDocs: [], classNames: new Map(), fired: new Set(), ready: 0 };
+  const onError = what => err => {
+    console.error(`Listener for ${what} of ${uid} failed:`, err);
+    process.exit(1);
+  };
+  const userRef = db.collection('users').doc(uid);
+  user.unsubscribe = [
+    db.collection('userPrefs').doc(uid).onSnapshot(snap => {
+      user.prefDoc = snap;
+      user.ready |= 1;
+    }, onError('userPrefs')),
+    userRef.collection('classes').onSnapshot(snap => {
+      user.classNames = new Map(snap.docs.map(d => [d.id, d.data().name]));
+      user.ready |= 2;
+    }, onError('classes')),
+    userRef.collection('homework').onSnapshot(snap => {
+      user.hwDocs = snap.docs;
+      // A change to an assignment — including our own remindedAt write, or the
+      // client clearing it after a deadline edit — supersedes our local record.
+      for (const change of snap.docChanges()) user.fired.delete(change.doc.ref.path);
+      user.ready |= 4;
+    }, onError('homework'))
+  ];
+  return user;
+}
+
+async function watch(db, minutes) {
+  const stopAt = Date.now() + minutes * 60000;
+  const users  = new Map();   // uid → watchUser state
+  let subsByUid = new Map();
+  let subsReady = false;
+
+  const unsubSubs = db.collection('pushSubscriptions').onSnapshot(snap => {
+    subsByUid = groupSubscriptions(snap.docs);
+    subsReady = true;
+    for (const uid of subsByUid.keys()) {
+      if (!users.has(uid)) users.set(uid, watchUser(db, uid));
+    }
+    for (const [uid, user] of users) {
+      if (!subsByUid.has(uid)) {
+        user.unsubscribe.forEach(u => u());
+        users.delete(uid);
+      }
+    }
+  }, err => {
+    console.error('Listener for pushSubscriptions failed:', err);
+    process.exit(1);
+  });
+
+  console.log(`Watching for due reminders until ${new Date(stopAt).toISOString()}…`);
+  let total = 0;
+  while (Date.now() < stopAt) {
+    if (subsReady) {
+      const now = Date.now();
+      for (const [uid, user] of users) {
+        const subs = subsByUid.get(uid);
+        if (user.ready !== 7 || !subs) continue;   // first snapshots not in yet
+        total += await remindDue(user.hwDocs, subs, userDefaultLead(user.prefDoc, subs),
+                                 user.classNames, now, user.fired);
+      }
+    }
+    await new Promise(resolve => setTimeout(resolve, Math.min(TICK_MS, Math.max(0, stopAt - Date.now()))));
+  }
+
+  unsubSubs();
+  for (const user of users.values()) user.unsubscribe.forEach(u => u());
+  console.log(`Watch ended — ${total} notification${total === 1 ? '' : 's'} delivered.`);
+}
+
+function groupSubscriptions(docs) {
+  const subsByUid = new Map();
+  for (const doc of docs) {
+    const { uid, endpoint, keys } = doc.data();
+    if (!uid || !endpoint || !keys) {
+      console.warn(`Skipping malformed subscription ${doc.id}`);
+      continue;
+    }
+    if (!subsByUid.has(uid)) subsByUid.set(uid, []);
+    subsByUid.get(uid).push(doc);
+  }
+  return subsByUid;
 }
 
 /* A manual escape hatch for "is this thing on?" — the old /api/notifications/test
@@ -251,22 +369,18 @@ async function main() {
   const db  = init();
   const now = Date.now();
 
+  const watchMinutes = Number(process.env.WATCH_MINUTES || 0);
+  if (watchMinutes > 0 && process.env.MODE !== 'test' && !DRY_RUN) {
+    await watch(db, watchMinutes);
+    return;
+  }
+
   const subSnap = await db.collection('pushSubscriptions').get();
   if (subSnap.empty) {
     console.log('No push subscriptions registered — nothing to do.');
     return;
   }
-
-  const subsByUid = new Map();
-  for (const doc of subSnap.docs) {
-    const { uid, endpoint, keys } = doc.data();
-    if (!uid || !endpoint || !keys) {
-      console.warn(`Skipping malformed subscription ${doc.id}`);
-      continue;
-    }
-    if (!subsByUid.has(uid)) subsByUid.set(uid, []);
-    subsByUid.get(uid).push(doc);
-  }
+  const subsByUid = groupSubscriptions(subSnap.docs);
 
   if (process.env.MODE === 'test') {
     const sent = await sendTest(subsByUid);
@@ -284,7 +398,9 @@ async function main() {
 }
 
 if (require.main === module) {
-  main().catch(err => {
+  // Exit explicitly: firebase-admin keeps sockets open after the last listener
+  // is detached, which would hold the job until its timeout.
+  main().then(() => process.exit(0), err => {
     console.error(err);
     process.exit(1);
   });
@@ -292,4 +408,4 @@ if (require.main === module) {
 
 // Exported for tests; the deadline maths and the "should this fire?" filter are
 // the parts worth checking directly.
-module.exports = { wallClockToEpoch, deadlineEpoch, formatLead, toUrlSafe, processUser };
+module.exports = { wallClockToEpoch, deadlineEpoch, formatLead, toUrlSafe, processUser, remindDue, watch };
