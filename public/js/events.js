@@ -15,6 +15,8 @@ import { handleAddHomework, handleAddTab, handleClassFormSubmit, handleDeleteCla
 import { downloadSchedule, loadSchedule } from './transfer.js';
 import { applyCollegeTemplate, applyPersonalTemplate, applyStudentTemplate, applyWorkTemplate } from './templates.js';
 import { subscribeToNotifications, unsubscribeFromNotifications } from './notifications.js';
+import { closePalette, wirePalette } from './palette.js';
+import { closeHelp, wireShortcuts } from './shortcuts.js';
 
 /* =============================================================================
    WIRE EVENTS
@@ -555,8 +557,12 @@ function wireEvents() {
       if (sel.ids.size && !document.querySelector('.modal--open')) { clearSelection(); return; }
       closeHwModal(); closeSettings(); closeGroupForm();
       closeModal('whats-new-modal'); closeModal('privacy-modal');
+      closePalette(); closeHelp();
     }
   });
+
+  wirePalette();
+  wireShortcuts();
 }
 
 export { wireEvents };
