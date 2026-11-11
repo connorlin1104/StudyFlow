@@ -3,6 +3,7 @@
   "version": "2.0.0",
   "description": "A color-coded homework scheduling web app — a static frontend on Firebase Hosting that talks straight to Firestore",
   "private": true,
+  "type": "module",
   "scripts": {
     "serve": "firebase emulators:start --only hosting",
     "deploy": "firebase deploy --only hosting,firestore:rules,storage"

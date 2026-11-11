@@ -77,4 +77,4 @@ function selKey(type, id) { return KEY_PREFIX[type] + id; }
 function splitKey(key)    { const i = key.indexOf(':'); return [key.slice(0, i), key.slice(i + 1)]; }
 function keyKind(key)     { return key.startsWith('cls:') ? 'class' : 'item'; }
 
-export { containerItems, folderChildren, groupChildren, keyKind, resortClasses, selKey, splitKey, state };
+export { containerItems, deadlineValue, folderChildren, groupChildren, keyKind, resortClasses, selKey, splitKey, state };
