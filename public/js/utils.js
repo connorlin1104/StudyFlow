@@ -37,7 +37,11 @@ function parseDeadline(dateStr, timeStr) {
   const due   = new Date(dateStr + (timeStr ? `T${timeStr}:00` : 'T00:00:00'));
   const today = new Date();
   today.setHours(0,0,0,0);
-  const diff  = Math.floor((due-today)/86_400_000);
+  // Count calendar days midnight-to-midnight, ignoring the time of day. Round
+  // rather than floor: the day the clocks change is 23 or 25 hours long, and
+  // flooring made tomorrow's work read "Due Today" the day before DST began.
+  const dueDay = new Date(dateStr + 'T00:00:00');
+  const diff   = Math.round((dueDay-today)/86_400_000);
   let label;
   if (diff === 0)       label = 'Today';
   else if (diff === 1)  label = 'Tomorrow';
@@ -49,8 +53,11 @@ function parseDeadline(dateStr, timeStr) {
   if (timeStr) {
     label += ' at ' + due.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
   }
-  // Overdue if past the deadline date, or same day but the time has already passed
-  const overdue = diff < 0 || (diff === 0 && due < new Date());
+  // Overdue if past the deadline date, or same day but the time has already
+  // passed. A bare date means "sometime that day" (23:59, as in deadlineValue),
+  // so it is never overdue on the day itself — `due` is midnight for those and
+  // would otherwise turn the card red from 12:01am.
+  const overdue = diff < 0 || (diff === 0 && !!timeStr && due < new Date());
   const cssClass = overdue          ? 'deadline--overdue'
                  : diff === 0       ? 'deadline--today'
                  : diff <= 3        ? 'deadline--soon'
