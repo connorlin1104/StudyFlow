@@ -192,8 +192,11 @@ started storing `deadlineMs`.
 
 - GitHub queues scheduled workflows on a best-effort basis and can run them
   several minutes late under load, so treat the lead time as approximate.
-- **Scheduled workflows are disabled automatically after 60 days without a push
-  to the repo.** If reminders quietly stop, check that first.
+- **GitHub disables scheduled workflows after 60 days without repository
+  activity.** Each run re-enables its own workflow through the API (the
+  "Keep scheduled runs from being auto-disabled" step), which resets that clock.
+  If reminders quietly stop anyway, check the Actions tab for a disabled
+  workflow and a failing keep-alive step first.
 - A reminder whose time has already passed when the assignment is created never
   fires — the same behavior the Cloud Tasks version had. Adding an assignment
   due in 12 hours with a "1 day before" reminder gets you nothing.

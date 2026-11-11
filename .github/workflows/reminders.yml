@@ -35,6 +35,8 @@ concurrency:
 
 permissions:
   contents: read
+  # Only for the keep-alive step below, which re-enables this workflow.
+  actions: write
 
 jobs:
   send:
@@ -43,6 +45,20 @@ jobs:
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@v7
+
+      # GitHub disables scheduled workflows in a public repo after 60 days
+      # with no repository activity, and does it silently — reminders would
+      # just stop. Re-enabling the workflow through the API counts as activity
+      # and resets that clock, so every run keeps the next ones alive without
+      # needing dummy commits. It runs first because the send step below stays
+      # up for hours, and it can't fail the job: a hiccup here must never cost
+      # a round of reminders.
+      - name: Keep scheduled runs from being auto-disabled
+        continue-on-error: true
+        run: gh workflow enable reminders.yml
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO:  ${{ github.repository }}
 
       - uses: actions/setup-node@v7
         with:
