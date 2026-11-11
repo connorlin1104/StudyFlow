@@ -49,6 +49,31 @@ make serve      # http://localhost:5000
 This serves `public/` against the real Firestore project, so you are editing live
 data. There is nothing to install and no `npm install` step.
 
+## Testing
+
+```bash
+cd tests
+npm run test:unit     # pure frontend logic — no install needed
+npm install           # once, for the rules tests
+npm run test:rules    # firestore.rules + storage.rules against the emulators
+```
+
+- **Unit tests** (`tests/unit/`) import the browser modules in `public/js/`
+  straight into Node's built-in test runner. Only modules that don't touch the
+  DOM or Firebase at load time can be imported this way — currently `utils.js`,
+  `state.js` and `constants.js`. Pull new logic into one of those (or a new
+  module like them) when you want it tested. The script pins
+  `TZ=America/Los_Angeles` so date tests mean the same thing on every machine,
+  DST changes included.
+- **Rules tests** (`tests/rules/`) start the Firestore and Storage emulators
+  under the throwaway project `demo-studyflow` — nothing touches the real
+  project. The emulators need **Java 11+** (`brew install openjdk@21` on a Mac).
+  These are the only check on the rules before `make rules` publishes them, so
+  add a case whenever a rule changes.
+
+`.github/workflows/test.yml` runs both on every pull request and every push to
+`main`.
+
 ## Deploy
 
 ```bash

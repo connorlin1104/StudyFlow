@@ -1,0 +1,50 @@
+name: Tests
+
+# Runs on every pull request, and on main so a direct push that breaks
+# something still shows a red X. See tests/ and the Testing section of README.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      # No npm install: the unit tests import public/js directly and use only
+      # Node built-ins.
+      - run: npm run test:unit
+        working-directory: tests
+
+  rules:
+    name: Security rules tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: tests/package-lock.json
+      # The Firestore and Storage emulators are Java programs.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      # The emulators download their jars on first use; keep them between runs.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ hashFiles('tests/package-lock.json') }}
+      - run: npm ci
+        working-directory: tests
+      - run: npm run test:rules
+        working-directory: tests
