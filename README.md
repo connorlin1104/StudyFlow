@@ -12,14 +12,14 @@ with deadlines, and access your schedule from any device.
 
 ## Stack
 
-- **Frontend** — Vanilla HTML / CSS / JS, Firebase compat SDK loaded via `<script>` tags
+- **Frontend** — Vanilla HTML / CSS / JS split into native ES modules (`public/js/main.js` is the entry point), Firebase compat SDK loaded via `<script>` tags as a global
 - **Data** — Firestore, accessed straight from the client; per-user access enforced by `firestore.rules`
 - **Files** — Cloud Storage for assignment attachments, scoped per-user by `storage.rules`
 - **Hosting** — Firebase Hosting serving `public/` as-is
 - **Reminders** — a GitHub Actions cron job (`notifier/`), the only thing that runs outside the browser
 
 There is **no backend and no build step**. Every read and write in the app goes
-through the `api` object at the top of `public/js/app.js`, which wraps the
+through the `api` object in `public/js/api.js`, which wraps the
 Firestore client SDK. Security lives entirely in the rules files.
 
 The one exception is push notifications: something has to be awake when the
@@ -76,7 +76,15 @@ StudyFlow/
 ├── public/
 │   ├── index.html
 │   ├── js/
-│   │   ├── app.js              # All frontend logic; Firestore access in the `api` object
+│   │   ├── main.js             # Entry point (ES module): init, auth gate, refresh-on-focus
+│   │   ├── firebase.js         # SDK setup: auth, db, storage, currentUser
+│   │   ├── api.js              # All Firestore access, in the `api` object
+│   │   ├── state.js            # In-memory state + group/folder ordering helpers
+│   │   ├── render.js           # Tab bar, board, group rows, assignment cards
+│   │   ├── drag.js             # Pointer drag-and-drop + board placement/undo
+│   │   ├── events.js           # wireEvents(): every DOM listener
+│   │   ├── handlers.js         # Add/edit/delete/complete actions
+│   │   ├── …                   # selection, history, settings, folders, etc. — one per feature
 │   │   └── config.js           # Firebase web config (public by design)
 │   ├── css/style.css
 │   └── sw.js                   # Service worker — push notification display only
@@ -116,7 +124,7 @@ nested in Firestore; the tree is entirely reconstructed from those two fields.
 
 A group's **top level** interleaves two collections: its folders, and the
 assignments with no `folderId`. Both draw positions from one shared `order`
-sequence, so `groupChildren()` in `app.js` merges them and `renumberClasses()`
+sequence, so `groupChildren()` in `state.js` merges them and `renumberClasses()`
 writes 0..n-1 back across both. The assignments **inside** a folder number
 themselves 0..n-1 within that folder, so an assignment's `order` means "position
 in my folder" or "position in my group" depending on whether `folderId` is set.
@@ -162,13 +170,13 @@ Four repository secrets (Settings → Secrets and variables → Actions):
 | Secret | Value |
 | --- | --- |
 | `FIREBASE_SERVICE_ACCOUNT` | The entire contents of `serviceAccountKey.json` |
-| `VAPID_PUBLIC_KEY` | Must match `VAPID_PUBLIC_KEY` in `public/js/app.js` |
+| `VAPID_PUBLIC_KEY` | Must match `VAPID_PUBLIC_KEY` in `public/js/notifications.js` |
 | `VAPID_PRIVATE_KEY` | The private half of that pair |
 | `VAPID_EMAIL` | `mailto:you@example.com` — push services require a contact |
 
 If the private key has been lost, generate a fresh pair with
 `npx web-push generate-vapid-keys`. The public half must then also be pasted
-into `public/js/app.js` and redeployed, and **every device has to toggle
+into `public/js/notifications.js` and redeployed, and **every device has to toggle
 notifications off and back on** — existing subscriptions are bound to the old
 key and will start failing with `403`. The sender deletes subscriptions the push
 service reports as expired (`404`/`410`), but a key mismatch is not one of those.
@@ -201,7 +209,7 @@ started storing `deadlineMs`.
   fires — the same behavior the Cloud Tasks version had. Adding an assignment
   due in 12 hours with a "1 day before" reminder gets you nothing.
 - A date with no time is treated as 23:59 on that date — "due sometime that
-  day" — which is also what the sort comparators in `app.js` assume. It used to
+  day" — which is also what the sort comparators in `state.js` assume. It used to
   be midnight, which put the whole day in the past and made a "1 hour before"
   reminder arrive at 11pm the night before.
 
@@ -209,7 +217,7 @@ started storing `deadlineMs`.
 
 - **Completed assignments are pruned in the browser, not on a schedule.** The
   scheduled `cleanup` sweep went away with the Functions backend, so
-  `pruneOldCompleted()` in `app.js` re-applies the same 30-day policy on load.
+  `pruneOldCompleted()` in `main.js` re-applies the same 30-day policy on load.
   It only runs while someone has the app open — a dormant account never prunes.
 - **Cascading deletes run in the browser.** Deleting a space deletes its groups
   and their assignments client-side; closing the tab mid-delete can orphan
