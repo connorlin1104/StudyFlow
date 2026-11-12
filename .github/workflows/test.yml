@@ -40,7 +40,7 @@ jobs:
           distribution: temurin
           java-version: '21'
       # The emulators download their jars on first use; keep them between runs.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: ~/.cache/firebase/emulators
           key: firebase-emulators-${{ hashFiles('tests/package-lock.json') }}
