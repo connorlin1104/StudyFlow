@@ -8,6 +8,7 @@ import { search } from './search.js';
 import { parseQuickAdd } from './quickadd.js';
 import { formatDuration } from './duration.js';
 import { subtaskProgress } from './subtasks.js';
+import { describeRepeat } from './recurrence.js';
 
 /* =============================================================================
    COMMAND PALETTE  (Ctrl/⌘+K or /)
@@ -97,7 +98,8 @@ function rowHtml(row, i) {
     title = `Create “${esc(p.description)}”`;
     const prio = p.priority === 'high' ? '<span class="prio-flag">!</span>High priority' : p.priority === 'low' ? 'Low priority' : '';
     const est  = p.estimateMin ? `⏱ ${formatDuration(p.estimateMin)}` : '';
-    meta  = [cls && `${groupDot(cls)}${esc(cls.name)}`, due && esc(due.label), prio, est].filter(Boolean).join(' · ');
+    const rep  = p.repeat ? `↻ ${esc(describeRepeat(p.repeat))}` : '';
+    meta  = [cls && `${groupDot(cls)}${esc(cls.name)}`, due && esc(due.label), prio, est, rep].filter(Boolean).join(' · ');
   } else if (row.type === 'hw') {
     const hw = state.homework.find(h => h.id === row.id);
     const cls = clsOf(hw.classId);
@@ -106,7 +108,7 @@ function rowHtml(row, i) {
     title = esc(hw.description);
     const steps = subtaskProgress(hw);
     meta  = [cls && esc(cls.name), cls && esc(tabName(cls.tabId)), due && esc(due.label),
-             hw.estimateMin && `⏱ ${formatDuration(hw.estimateMin)}`, steps && `${steps.done}/${steps.total} steps`].filter(Boolean).join(' · ');
+             hw.estimateMin && `⏱ ${formatDuration(hw.estimateMin)}`, steps && `${steps.done}/${steps.total} steps`, hw.repeat && `↻ ${esc(describeRepeat(hw.repeat))}`].filter(Boolean).join(' · ');
   } else if (row.type === 'class') {
     const cls = clsOf(row.id);
     icon  = groupDot(cls);

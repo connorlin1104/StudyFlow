@@ -13,6 +13,7 @@ import { closeGroupForm, closeSettings, openGroupForm, openSettings, populateSet
 import { closeHwModal, openHwEditModal, openHwModal } from './hw-modal.js';
 import { handleAddHomework, handleAddTab, handleClassFormSubmit, handleDeleteClass, handleDeleteHw, handleDeleteTab, handleMarkComplete, setSubtaskDone } from './handlers.js';
 import { wireSubtaskForm } from './subtask-form.js';
+import { wireRepeatForm } from './repeat-form.js';
 import { downloadSchedule, loadSchedule } from './transfer.js';
 import { applyCollegeTemplate, applyPersonalTemplate, applyStudentTemplate, applyWorkTemplate } from './templates.js';
 import { subscribeToNotifications, unsubscribeFromNotifications } from './notifications.js';
@@ -77,6 +78,7 @@ function wireEvents() {
   document.getElementById('hw-backdrop').addEventListener('click', closeHwModal);
 
   wireSubtaskForm();
+  wireRepeatForm();
   document.getElementById('hw-attach-btn').addEventListener('click', () => document.getElementById('hw-attach-input').click());
   document.getElementById('hw-attach-input').addEventListener('change', e => {
     handleAttachFiles(e.target.files);

@@ -242,6 +242,19 @@
             <option value="-1">No reminder</option>
           </select>
         </div>
+        <div class="form-group">
+          <label for="hw-repeat">Repeat</label>
+          <select id="hw-repeat">
+            <option value="">Doesn&rsquo;t repeat</option>
+            <option value="daily">Every day</option>
+            <option value="weekdays">Every weekday (Mon&ndash;Fri)</option>
+            <option value="weekly">Every week</option>
+            <option value="biweekly">Every 2 weeks</option>
+            <option value="monthly">Every month</option>
+          </select>
+          <div class="weekday-picker hidden" id="hw-repeat-days" role="group" aria-label="Repeat on"></div>
+          <p class="form-hint hidden" id="hw-repeat-hint"></p>
+        </div>
         <div class="form-row form-row--keep">
           <div class="form-group form-group--fit">
             <span class="form-label" id="hw-priority-label">Priority</span>
@@ -660,6 +673,7 @@
             <li><strong>Priority</strong> &mdash; mark an assignment <strong>High</strong> or <strong>Low</strong> in its form, or right-click one (or a whole selection) and pick <strong>Priority</strong>. High-priority work gets a red <strong>!</strong> and goes first among things due at the same time. In quick add, type <em>!high</em> or <em>!low</em>.</li>
             <li><strong>Time estimates</strong> &mdash; say how long something will take (<em>45m</em>, <em>1h 30m</em>) in the form, or add <em>~45m</em> in quick add. The board shows it on the card, and the calendar adds up each day so you can see which ones are heavy.</li>
             <li><strong>Steps</strong> &mdash; break a big assignment into a checklist in its form (paste a list and each line becomes a step). The card shows how far along you are, like <strong>2/5</strong>; open the card to tick steps off as you go.</li>
+            <li><strong>Repeating assignments</strong> &mdash; set <strong>Repeat</strong> in the form (every day, weekday, week, 2 weeks or month, on the days you pick), or type <em>every mon</em>, <em>every tue &amp; thu</em> or <em>daily</em> in quick add. Tick one off and the next is added with its new due date, steps unticked; <kbd>Ctrl</kbd>/<kbd>&#8984;</kbd> <kbd>Z</kbd> takes both back.</li>
             <li>Fixed: clearing an assignment&rsquo;s due date, notes or last attachment in the edit form now actually removes it.</li>
           </ul>
         </div>

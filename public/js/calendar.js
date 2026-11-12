@@ -9,6 +9,7 @@ import { renderSummary } from './summary.js';
 import { openHwEditModal, openHwModalPrefilled } from './hw-modal.js';
 import { formatDuration, totalEstimate } from './duration.js';
 import { subtaskProgress } from './subtasks.js';
+import { describeRepeat } from './recurrence.js';
 import { bucket, deadlineMsFor, monthGrid, parseYmd, rangeLabel, shiftAnchor, viewRange, weekDays, ymd } from './calendar-dates.js';
 
 /* =============================================================================
@@ -76,9 +77,10 @@ function itemHtml(hw, cls, { sub = '', showTime = true, today }) {
     || (hw.deadline === today && hw.deadlineTime && new Date(`${hw.deadline}T${hw.deadlineTime}`) < new Date());
   const time = showTime ? shortTime(hw.deadlineTime) : '';
   const high = hw.priority === 'high', low = hw.priority === 'low';
+  const repeats = describeRepeat(hw.repeat);
   return `<div class="cal-item${overdue ? ' cal-item--overdue' : ''}${high ? ' cal-item--high' : low ? ' cal-item--low' : ''}" data-hw-id="${esc(hw.id)}"
-      style="--color:${esc(cls.color || '#94a3b8')}" title="${high ? 'High priority: ' : ''}${esc(hw.description)} — ${esc(cls.name)}">
-    <span class="cal-item-line">${high ? '<span class="prio-flag" aria-label="High priority">!</span>' : ''}${time ? `<span class="cal-item-time">${time}</span>` : ''}<span class="cal-item-desc">${esc(hw.description)}</span></span>
+      style="--color:${esc(cls.color || '#94a3b8')}" title="${high ? 'High priority: ' : ''}${esc(hw.description)} — ${esc(cls.name)}${repeats ? ` (${esc(repeats.toLowerCase())})` : ''}">
+    <span class="cal-item-line">${high ? '<span class="prio-flag" aria-label="High priority">!</span>' : ''}${time ? `<span class="cal-item-time">${time}</span>` : ''}<span class="cal-item-desc">${esc(hw.description)}</span>${repeats ? '<span class="repeat-mark" aria-label="Repeats">↻</span>' : ''}</span>
     ${sub ? `<span class="cal-item-group">${esc(sub)}</span>` : ''}
   </div>`;
 }

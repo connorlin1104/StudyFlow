@@ -10,10 +10,12 @@ import { formAttachments } from './attachments.js';
 import { renderSummary } from './summary.js';
 import { closeGroupForm, closeSettings, populateSettingsTabSelect, renderSettingsClassList, renderSettingsTabsList, tabItemLabel } from './settings.js';
 import { closeHwModal } from './hw-modal.js';
-import { deadlineMsFor } from './calendar-dates.js';
+import { deadlineMsFor, ymd } from './calendar-dates.js';
 import { parseDuration } from './duration.js';
 import { readFormSubtasks } from './subtask-form.js';
 import { subtaskProgress, toggleSubtask } from './subtasks.js';
+import { readRepeatInput } from './repeat-form.js';
+import { firstDue, nextDue } from './recurrence.js';
 
 /* =============================================================================
    EVENT HANDLERS
@@ -68,6 +70,11 @@ async function handleAddHomework(e) {
     deadline = parts.join('-');
   }
 
+  // A repeating assignment counts from its due date, so one saved without a
+  // date gets the first day its rule lands on (the form's hint says which).
+  const repeat = readRepeatInput(deadline);
+  if (repeat && !deadline) deadline = firstDue(repeat, ymd(new Date()));
+
   // Only build deadlineTime if user entered an hour
   let deadlineTime = '';
   const hParsed = parseInt(hourVal);
@@ -111,6 +118,7 @@ async function handleAddHomework(e) {
     priority:     priorityVal,
     estimateMin,
     subtasks,
+    repeat,
   } : {
     classId, description,
     ...(folderId && state.folders.some(f => f.id === folderId && f.classId === classId) && { folderId }),
@@ -123,6 +131,7 @@ async function handleAddHomework(e) {
     ...(priorityVal       && { priority: priorityVal }),
     ...(estimateMin       && { estimateMin }),
     ...(subtasks.length   && { subtasks }),
+    ...(repeat            && { repeat }),
   };
 
   try {
@@ -353,38 +362,86 @@ async function handleDeleteTab(tabId) {
   } catch (err) { toast(`Error: ${err.message}`, 'error'); }
 }
 
+/* The next copy of a repeating assignment: everything carried over except
+   what belongs to the finished one — attachments (completing deletes them
+   from Storage), ticked steps, reminder bookkeeping. It takes the finished
+   one's place in a manually ordered list. */
+function nextOccurrence(hw) {
+  const deadline = nextDue(hw.repeat, hw.deadline, ymd(new Date()));
+  if (!deadline) return null;
+  const folderOk = hw.folderId && state.folders.some(f => f.id === hw.folderId);
+  return {
+    classId: hw.classId,
+    ...(folderOk && { folderId: hw.folderId }),
+    description: hw.description,
+    ...(hw.notes && { notes: hw.notes }),
+    deadline,
+    ...(hw.deadlineTime && { deadlineTime: hw.deadlineTime }),
+    deadlineMs: deadlineMsFor(deadline, hw.deadlineTime),
+    ...(hw.remindBefore != null && { remindBefore: hw.remindBefore }),
+    ...(hw.priority && { priority: hw.priority }),
+    ...(hw.estimateMin && { estimateMin: hw.estimateMin }),
+    ...(hw.subtasks?.length && { subtasks: hw.subtasks.map(s => ({ ...s, done: false })) }),
+    repeat: hw.repeat,
+    ...(hw.order != null && { order: hw.order }),
+  };
+}
+
+const shortDate = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); };
+
 async function handleMarkComplete(hwId) {
   // Capture the hw BEFORE any state changes
   const hw = state.homework.find(h => h.id === hwId);
-  if (!hw) return;
+  if (!hw || hw.completed) return;
+  const next = hw.repeat && hw.deadline ? nextOccurrence(hw) : null;
+
+  const setDone = async done => {
+    const upd = await api.homework.update(hwId, { completed: done });
+    const j = state.homework.findIndex(h => h.id === hwId);
+    if (j !== -1) state.homework[j] = { ...state.homework[j], ...upd, completed: done };
+  };
+  const spawn = async () => {
+    const created = await api.homework.create(next);
+    state.homework.push(created);
+    return created.id;
+  };
+  const doneToast = () => toast(next ? `Completed "${hw.description}" — next one due ${shortDate(next.deadline)}`
+                                     : `Completed "${hw.description}"`, 'success');
 
   try {
-    const updated = await api.homework.update(hwId, { completed: true });
-    // Merge into state: spread existing fields so nothing is lost, then overlay server response
-    const i = state.homework.findIndex(h => h.id === hwId);
-    if (i !== -1) state.homework[i] = { ...state.homework[i], ...updated };
+    await setDone(true);
+    let spawnedId = null;
+    // If the next copy can't be made, don't leave it finished with nothing
+    // coming after it — the error toast plus an unticked box says try again.
+    if (next) {
+      try { spawnedId = await spawn(); }
+      catch (err) { await setDone(false).catch(() => {}); renderSchedule(); throw err; }
+    }
     renderSchedule();
     renderSummary();
-    toast(`Completed "${hw.description}"`, 'success');
+    doneToast();
 
     history.push({
-      // Capture description in closure for toast; undo reads fresh from state
-      _desc: hw.description,
+      // Undo takes back the copy it made too, and redo makes a fresh one
+      // (a new id each time, so this tracks whichever one is live).
+      spawnedId,
       async undo() {
-        const upd = await api.homework.update(hwId, { completed: false });
-        const j = state.homework.findIndex(h => h.id === hwId);
-        if (j !== -1) state.homework[j] = { ...state.homework[j], ...upd, completed: false };
+        if (this.spawnedId) {
+          await api.homework.remove(this.spawnedId);
+          state.homework = state.homework.filter(h => h.id !== this.spawnedId);
+          this.spawnedId = null;
+        }
+        await setDone(false);
         renderSchedule();
         renderSummary();
-        toast(`Restored "${this._desc}"`, 'info');
+        toast(`Restored "${hw.description}"`, 'info');
       },
       async redo() {
-        const upd = await api.homework.update(hwId, { completed: true });
-        const j = state.homework.findIndex(h => h.id === hwId);
-        if (j !== -1) state.homework[j] = { ...state.homework[j], ...upd, completed: true };
+        await setDone(true);
+        if (next) this.spawnedId = await spawn();
         renderSchedule();
         renderSummary();
-        toast(`Completed "${this._desc}"`, 'success');
+        doneToast();
       }
     });
   } catch (err) { toast(`Error: ${err.message}`, 'error'); }

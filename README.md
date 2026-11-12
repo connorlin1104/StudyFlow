@@ -62,7 +62,7 @@ npm run test:rules    # firestore.rules + storage.rules against the emulators
   straight into Node's built-in test runner. Only modules that don't touch the
   DOM or Firebase at load time can be imported this way — currently `utils.js`,
   `state.js`, `constants.js`, `quickadd.js`, `search.js`, `calendar-dates.js`,
-  `duration.js` and `subtasks.js`. Pull new logic into one of those (or a new module like
+  `duration.js`, `subtasks.js` and `recurrence.js`. Pull new logic into one of those (or a new module like
   them) when you want it tested. The script pins `TZ=America/Los_Angeles` so
   date tests mean the same thing on every machine, DST changes included.
 - **Rules tests** (`tests/rules/`) start the Firestore and Storage emulators
@@ -148,6 +148,12 @@ ties after manual order and due time (`priorityRank()` in `state.js`).
 `duration.js` parses what's typed ("1h 30m") and formats it back.
 `subtasks` is an ordered checklist, `[{ id, text, done }]`, absent or null when
 there are none; `cleanSubtasks()` in `subtasks.js` tidies it before every write.
+`repeat` makes an assignment come back — `{ freq: 'daily' }`,
+`{ freq: 'weekly', interval: 1|2, days: [0–6] }` or `{ freq: 'monthly', day }`.
+Nothing creates future copies ahead of time (there's no server to): completing
+one creates the next, due on `nextDue()` from `recurrence.js`, and undo deletes
+it again. A repeating assignment always has a due date, since the rule counts
+from it.
 Attachments are stored at `users/{uid}/hw-attachments/...` in Cloud Storage and
 referenced from the homework document.
 

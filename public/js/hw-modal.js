@@ -3,6 +3,7 @@ import { esc, toast } from './utils.js';
 import { formatDuration } from './duration.js';
 import { renderFormAttachments, setFormAttachments } from './attachments.js';
 import { setFormSubtasks } from './subtask-form.js';
+import { setRepeatInput } from './repeat-form.js';
 
 /* =============================================================================
    HOMEWORK MODAL
@@ -28,6 +29,7 @@ function openHwModal(preselectedClassId = null, preselectedFolderId = null) {
   setFormAttachments([]);
   renderFormAttachments();
   setFormSubtasks([]);
+  setRepeatInput(null);
 
   // Build grouped <optgroup> select
   const select = document.getElementById('hw-class');
@@ -78,6 +80,7 @@ function openHwEditModal(hwId) {
   const reminderSel = document.getElementById('hw-reminder');
   reminderSel.value = hw.remindBefore != null ? String(hw.remindBefore) : '';
   document.getElementById('hw-reminder-group').classList.toggle('hidden', !hw.deadline);
+  setRepeatInput(hw.repeat);   // after the deadline: the weekday toggles default from it
 
   document.getElementById('hw-modal-title').textContent   = 'Edit Assignment';
   document.getElementById('hw-form-submit').textContent   = 'Save Changes';
@@ -94,7 +97,7 @@ function openHwEditModal(hwId) {
 /* A new-assignment form with some fields already filled — from quick add in
    the palette, or from clicking a day on the calendar. Still just a form: the
    user reviews it and nothing is saved until they submit. */
-function openHwModalPrefilled({ description = '', classId = null, folderId = null, deadline = null, deadlineTime = null, priority = null, estimateMin = null } = {}) {
+function openHwModalPrefilled({ description = '', classId = null, folderId = null, deadline = null, deadlineTime = null, priority = null, estimateMin = null, repeat = null } = {}) {
   openHwModal(classId, folderId);
   if (!document.getElementById('hw-modal').classList.contains('modal--open')) return; // no groups yet
   document.getElementById('hw-desc').value = description;
@@ -111,6 +114,7 @@ function openHwModalPrefilled({ description = '', classId = null, folderId = nul
     document.getElementById('hw-minute').value = String(mm).padStart(2, '0');
     document.getElementById('hw-ampm').value   = hh >= 12 ? 'PM' : 'AM';
   }
+  setRepeatInput(repeat);
 }
 
 function closeHwModal() {
