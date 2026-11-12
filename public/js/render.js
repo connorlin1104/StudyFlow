@@ -3,6 +3,7 @@ import { applySelectionStyles, clearSelection } from './selection.js';
 import { prefs } from './prefs.js';
 import { esc, parseDeadline } from './utils.js';
 import { formatDuration } from './duration.js';
+import { subtaskProgress } from './subtasks.js';
 import { addClassDragBehavior, attachDrag } from './drag.js';
 import { fileIcon, isImageType } from './attachments.js';
 import { openGroupForm, openSettings, populateSettingsTabSelect, resetClassForm } from './settings.js';
@@ -179,7 +180,8 @@ function buildHwItem(hw, draggable = false) {
   const item = document.createElement('div');
   const hasMultiLineNotes = hw.notes && hw.notes.includes('\n');
   const hasAttachments = !!(hw.attachments && hw.attachments.length);
-  const isExpandable = !!(hasMultiLineNotes || hw.description.length > 50 || hasAttachments);
+  const steps = subtaskProgress(hw);
+  const isExpandable = !!(hasMultiLineNotes || hw.description.length > 50 || hasAttachments || steps);
   const startExpanded = isExpandable && new Set(prefs.get('expandedHw', [])).has(hw.id);
   const prio = hw.priority === 'high' || hw.priority === 'low' ? ` hw-item--${hw.priority}` : '';
   item.className = `hw-item${prio}${isExpandable ? ' hw-item--collapsible' : ''}${startExpanded ? ' hw-item--expanded' : ''}`;
@@ -199,6 +201,15 @@ function buildHwItem(hw, draggable = false) {
           : `<a class="hw-attach-file" href="${esc(a.url)}" target="_blank" rel="noopener" title="${esc(a.name)}">${fileIcon(a.type)}<span>${esc(a.name)}</span></a>`
       ).join('')}</div>`
     : '';
+  // Steps show when the card is open; the chip on the right says how far along it is.
+  const stepsHtml = steps
+    ? `<ul class="hw-steps">${hw.subtasks.map(s => `<li><label class="hw-step${s.done ? ' hw-step--done' : ''}">
+        <input type="checkbox" class="hw-step-check" data-hw-id="${hw.id}" data-step-id="${esc(s.id)}"${s.done ? ' checked' : ''}>
+        <span>${esc(s.text)}</span></label></li>`).join('')}</ul>`
+    : '';
+  const stepsChip = steps
+    ? `<span class="steps-chip${steps.done === steps.total ? ' steps-chip--done' : ''}" title="${steps.done} of ${steps.total} steps done">${steps.done}/${steps.total}</span>`
+    : '';
   const hintHtml = isExpandable ? `<span class="hw-expand-hint" aria-hidden="true">${startExpanded ? '▴ less' : '▾ more'}</span>` : '';
 
   item.innerHTML = `
@@ -211,12 +222,14 @@ function buildHwItem(hw, draggable = false) {
       <span class="hw-desc">${hw.priority === 'high' ? '<span class="prio-flag" title="High priority" aria-label="High priority">!</span>' : ''}${esc(hw.description)}</span>
       ${hintHtml}
       ${notesHtml}
+      ${stepsHtml}
       ${attachmentsHtml}
     </div>
     <div class="hw-right">
       <button class="btn-icon-sm hw-edit-btn"   data-hw-id="${hw.id}" aria-label="Edit">✎</button>
       <button class="btn-icon-sm hw-delete"      data-hw-id="${hw.id}" aria-label="Delete">&#x2715;</button>
       ${hasAttachments ? `<span class="hw-attach-badge" title="${hw.attachments.length} attachment${hw.attachments.length !== 1 ? 's' : ''}"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>${hw.attachments.length > 1 ? `<span>${hw.attachments.length}</span>` : ''}</span>` : ''}
+      ${stepsChip}
       ${hw.estimateMin ? `<span class="est-chip" title="Estimated time">${formatDuration(hw.estimateMin)}</span>` : ''}
       ${dlHtml}
     </div>

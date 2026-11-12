@@ -8,6 +8,7 @@ import { renderSchedule, renderTabBar } from './render.js';
 import { renderSummary } from './summary.js';
 import { openHwEditModal, openHwModalPrefilled } from './hw-modal.js';
 import { formatDuration, totalEstimate } from './duration.js';
+import { subtaskProgress } from './subtasks.js';
 import { bucket, deadlineMsFor, monthGrid, parseYmd, rangeLabel, shiftAnchor, viewRange, weekDays, ymd } from './calendar-dates.js';
 
 /* =============================================================================
@@ -93,7 +94,7 @@ function dayHtml(date, items, { month, today, classById, inMonth }) {
   const LIMIT = 3;
   const shown = month ? items.slice(0, LIMIT) : items;
   const more  = items.length - shown.length;
-  const sub   = hw => [classById.get(hw.classId).name, formatDuration(hw.estimateMin)].filter(Boolean).join(' · ');
+  const sub   = hw => [classById.get(hw.classId).name, formatDuration(hw.estimateMin), stepsLabel(hw)].filter(Boolean).join(' · ');
   const list  = shown.map(hw => itemHtml(hw, classById.get(hw.classId), { sub: month ? '' : sub(hw), today })).join('');
   // How much work the day holds, from the estimates that have been given.
   const total = formatDuration(totalEstimate(items));
@@ -115,6 +116,12 @@ function dayHtml(date, items, { month, today, classById, inMonth }) {
   </div>`;
 }
 
+// "2/5 steps", or nothing for an assignment without steps.
+function stepsLabel(hw) {
+  const p = subtaskProgress(hw);
+  return p ? `${p.done}/${p.total} steps` : '';
+}
+
 function extraHtml(title, items, classById, today, cssMod) {
   if (!items.length) return '';
   return `<section class="cal-extra cal-extra--${cssMod}">
@@ -122,7 +129,7 @@ function extraHtml(title, items, classById, today, cssMod) {
     <div class="cal-extra-items">${items.map(hw => {
       const cls = classById.get(hw.classId);
       const due = hw.deadline ? parseDeadline(hw.deadline, hw.deadlineTime) : null;
-      const sub = [cls.name, due?.label, formatDuration(hw.estimateMin)].filter(Boolean).join(' · ');
+      const sub = [cls.name, due?.label, formatDuration(hw.estimateMin), stepsLabel(hw)].filter(Boolean).join(' · ');
       return itemHtml(hw, cls, { sub, showTime: false, today });
     }).join('')}</div>
   </section>`;

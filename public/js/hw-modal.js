@@ -2,6 +2,7 @@ import { state } from './state.js';
 import { esc, toast } from './utils.js';
 import { formatDuration } from './duration.js';
 import { renderFormAttachments, setFormAttachments } from './attachments.js';
+import { setFormSubtasks } from './subtask-form.js';
 
 /* =============================================================================
    HOMEWORK MODAL
@@ -26,6 +27,7 @@ function openHwModal(preselectedClassId = null, preselectedFolderId = null) {
   document.getElementById('hw-reminder-group').classList.add('hidden');
   setFormAttachments([]);
   renderFormAttachments();
+  setFormSubtasks([]);
 
   // Build grouped <optgroup> select
   const select = document.getElementById('hw-class');
@@ -57,6 +59,7 @@ function openHwEditModal(hwId) {
   document.getElementById('hw-notes').value               = hw.notes       || '';
   setPriorityInput(hw.priority);
   document.getElementById('hw-estimate').value = formatDuration(hw.estimateMin);
+  setFormSubtasks(hw.subtasks);
   document.getElementById('hw-deadline').value = hw.deadline || '';
   // Restore time picker
   if (hw.deadlineTime) {

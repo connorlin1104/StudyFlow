@@ -12,6 +12,8 @@ import { closeGroupForm, closeSettings, populateSettingsTabSelect, renderSetting
 import { closeHwModal } from './hw-modal.js';
 import { deadlineMsFor } from './calendar-dates.js';
 import { parseDuration } from './duration.js';
+import { readFormSubtasks } from './subtask-form.js';
+import { subtaskProgress, toggleSubtask } from './subtasks.js';
 
 /* =============================================================================
    EVENT HANDLERS
@@ -95,6 +97,7 @@ async function handleAddHomework(e) {
     .map(({ name, type, url, storagePath }) => ({ name, type, url, storagePath }));
   const priority = document.querySelector('input[name="hw-priority"]:checked')?.value;
   const priorityVal = priority === 'high' || priority === 'low' ? priority : null;
+  const subtasks    = readFormSubtasks();
 
   /* Editing sends every field, empty ones as null or '', because
      api.homework.update skips anything undefined — leaving a field out of the
@@ -107,6 +110,7 @@ async function handleAddHomework(e) {
     deadlineMs,
     priority:     priorityVal,
     estimateMin,
+    subtasks,
   } : {
     classId, description,
     ...(folderId && state.folders.some(f => f.id === folderId && f.classId === classId) && { folderId }),
@@ -118,6 +122,7 @@ async function handleAddHomework(e) {
     ...(remindBefore != null && { remindBefore }),
     ...(priorityVal       && { priority: priorityVal }),
     ...(estimateMin       && { estimateMin }),
+    ...(subtasks.length   && { subtasks }),
   };
 
   try {
@@ -413,6 +418,39 @@ async function setPriority(hwIds, priority) {
   } catch (err) { toast(`Error: ${err.message}`, 'error'); }
 }
 
+/* Ticking a step on the card. State changes first so the card redraws right
+   away; the whole list is written back, so two quick ticks both land as long
+   as the writes go out in order (one client, one document — they do). */
+async function setSubtaskDone(hwId, stepId, done) {
+  const hw = state.homework.find(h => h.id === hwId);
+  if (!hw?.subtasks?.some(s => s.id === stepId)) return;
+  const text = hw.subtasks.find(s => s.id === stepId).text;
+
+  const apply = async value => {
+    const h = state.homework.find(x => x.id === hwId);
+    if (!h) return;
+    const prev = h.subtasks;
+    h.subtasks = toggleSubtask(h.subtasks, stepId, value);
+    renderSchedule();
+    try {
+      await api.homework.update(hwId, { subtasks: h.subtasks });
+    } catch (err) {
+      h.subtasks = prev;
+      renderSchedule();
+      throw err;
+    }
+  };
+  try {
+    await apply(done);
+    const p = subtaskProgress(hw);
+    if (done && p.done === p.total) toast(`All steps done — tick "${hw.description}" when you've handed it in`, 'success');
+    history.push({
+      async undo() { await apply(!done); toast(`${done ? 'Unticked' : 'Ticked'} "${text}"`, 'info'); },
+      async redo() { await apply(done);  toast(`${done ? 'Ticked' : 'Unticked'} "${text}"`, 'info'); }
+    });
+  } catch (err) { toast(`Error: ${err.message}`, 'error'); }
+}
+
 /* -----------------------------------------------------------------------------
    DELETE — assignments and folders
 
@@ -565,4 +603,4 @@ async function deleteClasses(ids) {
 
 function handleDeleteClass(classId) { return deleteClasses([classId]); }
 
-export { deleteClasses, deleteItems, handleAddHomework, setPriority, handleAddTab, handleClassFormSubmit, handleDeleteClass, handleDeleteHw, handleDeleteTab, handleMarkComplete };
+export { deleteClasses, deleteItems, handleAddHomework, setPriority, setSubtaskDone, handleAddTab, handleClassFormSubmit, handleDeleteClass, handleDeleteHw, handleDeleteTab, handleMarkComplete };

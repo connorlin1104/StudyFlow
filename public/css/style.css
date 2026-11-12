@@ -2716,3 +2716,46 @@ html.pwa-mode body {
 @media (max-width: 600px) {
   .cal-grid--month .cal-day-count { display: none; }
 }
+
+/* =============================================================================
+   SUBTASKS  (hw.subtasks: [{ id, text, done }]; logic in subtasks.js)
+   ============================================================================= */
+/* In the form: an editable checklist above a "new step" box */
+.step-edit-list { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.step-edit-list:empty { display: none; }
+.step-edit { display: flex; align-items: center; gap: 8px; }
+.step-edit-check { flex-shrink: 0; width: 16px; height: 16px; margin: 0; accent-color: var(--primary); cursor: pointer; }
+.step-edit .step-edit-text { padding: 6px 9px; font-size: .86rem; }
+.step-edit-check:checked + .step-edit-text { text-decoration: line-through; color: var(--text-muted); }
+.step-edit-remove {
+  flex-shrink: 0;
+  width: 26px; height: 26px;
+  border: none; border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  font-size: .8rem;
+  cursor: pointer;
+}
+.step-edit-remove:hover { background: var(--border); color: var(--danger); }
+.step-new { font-size: .86rem; }
+
+/* On the card: the checklist shows when the card is open */
+.hw-steps { display: none; list-style: none; margin: 4px 0 2px; padding: 0; flex-direction: column; gap: 3px; }
+.hw-item--expanded .hw-steps { display: flex; }
+.hw-step {
+  display: flex; align-items: flex-start; gap: 7px;
+  font-size: .8rem; font-weight: 400; text-transform: none; letter-spacing: 0;
+  color: var(--text);
+  cursor: pointer;
+}
+.hw-step input { flex-shrink: 0; width: 14px; height: 14px; margin: 2px 0 0; accent-color: var(--color, var(--primary)); cursor: pointer; }
+.hw-step--done span { text-decoration: line-through; color: var(--text-muted); }
+
+.steps-chip {
+  font-size: .72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.steps-chip::before { content: '☑ '; font-weight: 400; }
+.steps-chip--done { color: var(--success, #16a34a); }

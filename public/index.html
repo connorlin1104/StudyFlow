@@ -210,6 +210,11 @@
           <input type="file" id="hw-attach-input" multiple accept="image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip" style="display:none">
         </div>
         <div class="form-group">
+          <label for="hw-step-new" id="hw-steps-label">Steps <span class="optional">(optional)</span></label>
+          <ul class="step-edit-list" id="hw-steps" aria-labelledby="hw-steps-label"></ul>
+          <input type="text" id="hw-step-new" class="step-new" placeholder="Add a step, then press Enter" autocomplete="off">
+        </div>
+        <div class="form-group">
           <label>Deadline <span class="optional">(optional)</span></label>
           <div class="deadline-row">
             <input type="date" id="hw-deadline" placeholder="MM/DD/YYYY">
@@ -654,6 +659,7 @@
           <ul>
             <li><strong>Priority</strong> &mdash; mark an assignment <strong>High</strong> or <strong>Low</strong> in its form, or right-click one (or a whole selection) and pick <strong>Priority</strong>. High-priority work gets a red <strong>!</strong> and goes first among things due at the same time. In quick add, type <em>!high</em> or <em>!low</em>.</li>
             <li><strong>Time estimates</strong> &mdash; say how long something will take (<em>45m</em>, <em>1h 30m</em>) in the form, or add <em>~45m</em> in quick add. The board shows it on the card, and the calendar adds up each day so you can see which ones are heavy.</li>
+            <li><strong>Steps</strong> &mdash; break a big assignment into a checklist in its form (paste a list and each line becomes a step). The card shows how far along you are, like <strong>2/5</strong>; open the card to tick steps off as you go.</li>
             <li>Fixed: clearing an assignment&rsquo;s due date, notes or last attachment in the edit form now actually removes it.</li>
           </ul>
         </div>

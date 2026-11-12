@@ -7,6 +7,7 @@ import { openHwModalPrefilled } from './hw-modal.js';
 import { search } from './search.js';
 import { parseQuickAdd } from './quickadd.js';
 import { formatDuration } from './duration.js';
+import { subtaskProgress } from './subtasks.js';
 
 /* =============================================================================
    COMMAND PALETTE  (Ctrl/⌘+K or /)
@@ -103,7 +104,9 @@ function rowHtml(row, i) {
     const due = parseDeadline(hw.deadline, hw.deadlineTime);
     icon  = groupDot(cls);
     title = esc(hw.description);
-    meta  = [cls && esc(cls.name), cls && esc(tabName(cls.tabId)), due && esc(due.label)].filter(Boolean).join(' · ');
+    const steps = subtaskProgress(hw);
+    meta  = [cls && esc(cls.name), cls && esc(tabName(cls.tabId)), due && esc(due.label),
+             hw.estimateMin && `⏱ ${formatDuration(hw.estimateMin)}`, steps && `${steps.done}/${steps.total} steps`].filter(Boolean).join(' · ');
   } else if (row.type === 'class') {
     const cls = clsOf(row.id);
     icon  = groupDot(cls);

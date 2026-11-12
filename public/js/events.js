@@ -11,7 +11,8 @@ import { openContextMenu } from './contextmenu.js';
 import { closeLightbox, handleAttachFiles, openLightbox } from './attachments.js';
 import { closeGroupForm, closeSettings, openGroupForm, openSettings, populateSettingsTabSelect, renderPrefsPage, renderSettingsClassList, renderSettingsTabsList, resetClassForm, selectSwatch, startEditClass, switchSettingsPage, updateSettingsLabels } from './settings.js';
 import { closeHwModal, openHwEditModal, openHwModal } from './hw-modal.js';
-import { handleAddHomework, handleAddTab, handleClassFormSubmit, handleDeleteClass, handleDeleteHw, handleDeleteTab, handleMarkComplete } from './handlers.js';
+import { handleAddHomework, handleAddTab, handleClassFormSubmit, handleDeleteClass, handleDeleteHw, handleDeleteTab, handleMarkComplete, setSubtaskDone } from './handlers.js';
+import { wireSubtaskForm } from './subtask-form.js';
 import { downloadSchedule, loadSchedule } from './transfer.js';
 import { applyCollegeTemplate, applyPersonalTemplate, applyStudentTemplate, applyWorkTemplate } from './templates.js';
 import { subscribeToNotifications, unsubscribeFromNotifications } from './notifications.js';
@@ -75,6 +76,7 @@ function wireEvents() {
   document.getElementById('cancel-hw').addEventListener('click', closeHwModal);
   document.getElementById('hw-backdrop').addEventListener('click', closeHwModal);
 
+  wireSubtaskForm();
   document.getElementById('hw-attach-btn').addEventListener('click', () => document.getElementById('hw-attach-input').click());
   document.getElementById('hw-attach-input').addEventListener('change', e => {
     handleAttachFiles(e.target.files);
@@ -373,6 +375,8 @@ function wireEvents() {
   document.getElementById('classes-container').addEventListener('change', e => {
     const cb = e.target.closest('.hw-check');
     if (cb) handleMarkComplete(cb.dataset.hwId);
+    const step = e.target.closest('.hw-step-check');
+    if (step) setSubtaskDone(step.dataset.hwId, step.dataset.stepId, step.checked);
   });
 
   // Shift-click builds a selection, so don't let it also sweep a text highlight
@@ -492,7 +496,7 @@ function wireEvents() {
 
     // Toggle hw-item expand/collapse (click anywhere on item except interactive controls)
     const hwItem = e.target.closest('.hw-item--collapsible');
-    if (hwItem && !e.target.closest('.hw-check-label') && !e.target.closest('.hw-edit-btn') && !e.target.closest('.hw-delete') && !e.target.closest('.hw-attach-file') && !e.target.closest('.hw-drag-handle')) {
+    if (hwItem && !e.target.closest('.hw-check-label') && !e.target.closest('.hw-step') && !e.target.closest('.hw-edit-btn') && !e.target.closest('.hw-delete') && !e.target.closest('.hw-attach-file') && !e.target.closest('.hw-drag-handle')) {
       const expanded = hwItem.classList.toggle('hw-item--expanded');
       const hint = hwItem.querySelector('.hw-expand-hint');
       if (hint) hint.textContent = expanded ? '▴ less' : '▾ more';
