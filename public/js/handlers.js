@@ -10,6 +10,7 @@ import { formAttachments } from './attachments.js';
 import { renderSummary } from './summary.js';
 import { closeGroupForm, closeSettings, populateSettingsTabSelect, renderSettingsClassList, renderSettingsTabsList, tabItemLabel } from './settings.js';
 import { closeHwModal } from './hw-modal.js';
+import { deadlineMsFor } from './calendar-dates.js';
 
 /* =============================================================================
    EVENT HANDLERS
@@ -62,17 +63,13 @@ async function handleAddHomework(e) {
   const reminderVal = document.getElementById('hw-reminder').value;
   const remindBefore = deadline && reminderVal !== '' ? parseInt(reminderVal) : null;
 
-  let deadlineMs = null;
-  if (deadline) {
-    /* A date with no time means "sometime that day", so it ends the day rather
-       than starting it — the same 23:59 the sort comparators already assume.
-       Reading it as midnight put the whole day in the past and made reminders
-       land the evening before ("1 hour before" arrived at 11pm on the 6th for
-       something due on the 7th). Nothing but the reminder sender reads
-       deadlineMs, so this is the only place the two ever disagreed. */
-    const timeStr = deadlineTime || '23:59';
-    deadlineMs = new Date(`${deadline}T${timeStr}:00`).getTime();
-  }
+  /* A date with no time means "sometime that day", so it ends the day rather
+     than starting it — the same 23:59 the sort comparators already assume.
+     Reading it as midnight put the whole day in the past and made reminders
+     land the evening before ("1 hour before" arrived at 11pm on the 6th for
+     something due on the 7th). Only the reminder sender reads deadlineMs; the
+     calendar's drag-to-reschedule computes it with the same helper. */
+  const deadlineMs = deadlineMsFor(deadline, deadlineTime);
 
   const attachments = formAttachments
     .filter(a => a.url && !a.error)
