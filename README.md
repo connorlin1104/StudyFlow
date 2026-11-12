@@ -61,8 +61,9 @@ npm run test:rules    # firestore.rules + storage.rules against the emulators
 - **Unit tests** (`tests/unit/`) import the browser modules in `public/js/`
   straight into Node's built-in test runner. Only modules that don't touch the
   DOM or Firebase at load time can be imported this way — currently `utils.js`,
-  `state.js`, `constants.js`, `quickadd.js` and `search.js`. Pull new logic
-  into one of those (or a new module like them) when you want it tested. The script pins
+  `state.js`, `constants.js`, `quickadd.js`, `search.js` and
+  `calendar-dates.js`. Pull new logic into one of those (or a new module like
+  them) when you want it tested. The script pins
   `TZ=America/Los_Angeles` so date tests mean the same thing on every machine,
   DST changes included.
 - **Rules tests** (`tests/rules/`) start the Firestore and Storage emulators
@@ -110,7 +111,8 @@ StudyFlow/
 │   │   ├── events.js           # wireEvents(): every DOM listener
 │   │   ├── handlers.js         # Add/edit/delete/complete actions
 │   │   ├── palette.js          # Ctrl/⌘+K search + quick add (uses search.js, quickadd.js)
-│   │   ├── shortcuts.js        # Single-key shortcuts: / n e x ?
+│   │   ├── shortcuts.js        # Single-key shortcuts: / n e x b w m ?
+│   │   ├── calendar.js         # Week/Month views + drag-to-reschedule (date math in calendar-dates.js)
 │   │   ├── …                   # selection, history, settings, folders, etc. — one per feature
 │   │   └── config.js           # Firebase web config (public by design)
 │   ├── css/style.css

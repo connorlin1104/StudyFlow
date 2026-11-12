@@ -105,7 +105,7 @@
       <button class="btn-icon-header search-btn" id="search-btn" title="Search or quick add (Ctrl+K)" aria-label="Search or quick add">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
       </button>
-      <button class="btn btn-primary" id="add-hw-btn">+ Add Assignment</button>
+      <button class="btn btn-primary" id="add-hw-btn" aria-label="Add Assignment" title="Add Assignment (N)">+<span class="add-hw-label"> Add Assignment</span></button>
       <div class="undo-redo-group">
         <button class="btn-icon-header" id="undo-btn" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>↩</button>
         <button class="btn-icon-header" id="redo-btn" title="Redo (Ctrl+Y)" aria-label="Redo" disabled>↪</button>
@@ -130,9 +130,15 @@
     <div class="main-panel">
       <div class="tab-bar">
         <div class="tab-list" id="tab-list"></div>
+        <div class="view-toggle" role="group" aria-label="View">
+          <button class="view-btn view-btn--active" data-view="board" aria-pressed="true" title="Board (B)">Board</button>
+          <button class="view-btn" data-view="week" aria-pressed="false" title="Week (W)">Week</button>
+          <button class="view-btn" data-view="month" aria-pressed="false" title="Month (M)">Month</button>
+        </div>
       </div>
       <div class="tab-content">
         <div id="classes-container"></div>
+        <div id="calendar-container" class="calendar hidden"></div>
         <div id="empty-state" class="empty-state hidden">
           <div class="empty-state-body">
             <div class="empty-icon">&#x1F4DA;</div>
@@ -626,6 +632,14 @@
       </div>
       <div class="release-notes">
         <div class="release-block">
+          <h3 class="release-version">v1.14 &mdash; November 2026</h3>
+          <ul>
+            <li><strong>Calendar</strong> &mdash; switch between <strong>Board</strong>, <strong>Week</strong> and <strong>Month</strong> above your groups (or press <kbd>B</kbd>, <kbd>W</kbd>, <kbd>M</kbd>). The calendar shows every space at once, colored by group, so you can see which days pile up.</li>
+            <li><strong>Drag to reschedule</strong> &mdash; drag an assignment to another day to move its due date; the time stays the same and <kbd>Ctrl</kbd>/<kbd>&#8984;</kbd> <kbd>Z</kbd> puts it back. Drag one from &ldquo;No due date&rdquo; onto a day to give it a date.</li>
+            <li>Click an empty spot on any day to add an assignment due that day. Overdue work from earlier weeks is listed under the calendar so nothing slips out of sight.</li>
+          </ul>
+        </div>
+        <div class="release-block">
           <h3 class="release-version">v1.13 &mdash; November 2026</h3>
           <ul>
             <li><strong>Search everything</strong> &mdash; press <kbd>Ctrl</kbd>/<kbd>&#8984;</kbd> <kbd>K</kbd> (or <kbd>/</kbd>, or the magnifying glass) to find any assignment, group, folder or space. Pick a result and the board jumps straight to it, switching spaces and opening collapsed groups on the way.</li>
@@ -815,6 +829,8 @@
         <dt><kbd>N</kbd></dt><dd>New assignment</dd>
         <dt><kbd>E</kbd></dt><dd>Edit the assignment you&rsquo;re on</dd>
         <dt><kbd>X</kbd></dt><dd>Mark it complete</dd>
+        <dt><kbd>B</kbd> <kbd>W</kbd> <kbd>M</kbd></dt><dd>Board, week or month view</dd>
+        <dt><kbd>&larr;</kbd> <kbd>&rarr;</kbd></dt><dd>Previous / next week or month</dd>
         <dt><kbd>Ctrl</kbd>/<kbd>&#8984;</kbd> <kbd>Z</kbd></dt><dd>Undo</dd>
         <dt><kbd>Ctrl</kbd>/<kbd>&#8984;</kbd> <kbd>Y</kbd></dt><dd>Redo</dd>
         <dt><kbd>Esc</kbd></dt><dd>Close a dialog or clear the selection</dd>

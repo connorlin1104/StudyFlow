@@ -79,8 +79,28 @@ function openHwEditModal(hwId) {
   renderFormAttachments();
 }
 
+/* A new-assignment form with some fields already filled — from quick add in
+   the palette, or from clicking a day on the calendar. Still just a form: the
+   user reviews it and nothing is saved until they submit. */
+function openHwModalPrefilled({ description = '', classId = null, folderId = null, deadline = null, deadlineTime = null } = {}) {
+  openHwModal(classId, folderId);
+  if (!document.getElementById('hw-modal').classList.contains('modal--open')) return; // no groups yet
+  document.getElementById('hw-desc').value = description;
+  if (deadline) {
+    document.getElementById('hw-deadline').value = deadline;
+    // Setting .value doesn't fire 'change', which is what reveals the reminder.
+    document.getElementById('hw-reminder-group').classList.remove('hidden');
+  }
+  if (deadlineTime) {
+    const [hh, mm] = deadlineTime.split(':').map(Number);
+    document.getElementById('hw-hour').value   = String(hh % 12 || 12);
+    document.getElementById('hw-minute').value = String(mm).padStart(2, '0');
+    document.getElementById('hw-ampm').value   = hh >= 12 ? 'PM' : 'AM';
+  }
+}
+
 function closeHwModal() {
   document.getElementById('hw-modal').classList.remove('modal--open');
 }
 
-export { closeHwModal, openHwEditModal, openHwModal };
+export { closeHwModal, openHwEditModal, openHwModal, openHwModalPrefilled };

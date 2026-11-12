@@ -1,8 +1,9 @@
-import { selKey, state } from './state.js';
+import { defaultClassId, selKey, state } from './state.js';
 import { esc, parseDeadline } from './utils.js';
 import { elementForKey } from './selection.js';
 import { setActiveTab } from './render.js';
-import { openHwModal } from './hw-modal.js';
+import { isCalendarView, revealInCalendar } from './calendar.js';
+import { openHwModalPrefilled } from './hw-modal.js';
 import { search } from './search.js';
 import { parseQuickAdd } from './quickadd.js';
 
@@ -155,33 +156,12 @@ function setActive(i) {
    Acting on a row
    ----------------------------------------------------------------------------- */
 
-// Where a new assignment goes when the text didn't name a group.
-function defaultClassId() {
-  return (state.classes.find(c => c.tabId === state.activeTabId) || state.classes[0])?.id || null;
-}
-
 function choose(i) {
   const row = rows[i];
   if (!row) return;
   closePalette();
-  if (row.type === 'create') openPrefilledForm(row.parsed);
+  if (row.type === 'create') openHwModalPrefilled({ ...row.parsed, classId: row.parsed.classId || defaultClassId() });
   else jumpTo(row.type, row.id);
-}
-
-function openPrefilledForm({ description, classId, deadline, deadlineTime }) {
-  openHwModal(classId || defaultClassId());
-  $('hw-desc').value = description;
-  if (deadline) {
-    $('hw-deadline').value = deadline;
-    // Setting .value doesn't fire 'change', which is what reveals the reminder.
-    $('hw-reminder-group').classList.remove('hidden');
-  }
-  if (deadlineTime) {
-    const [hh, mm] = deadlineTime.split(':').map(Number);
-    $('hw-hour').value   = String(hh % 12 || 12);
-    $('hw-minute').value = String(mm).padStart(2, '0');
-    $('hw-ampm').value   = hh >= 12 ? 'PM' : 'AM';
-  }
 }
 
 // Open a collapsed group or folder on screen so the target is visible. This
@@ -205,15 +185,18 @@ function reveal(el) {
 }
 
 function jumpTo(kind, id) {
+  // On the calendar, an assignment with a date is shown there, in its week or
+  // month. Anything else (a group, a folder, undated work) needs the board.
+  if (kind === 'hw' && isCalendarView() && revealInCalendar(id)) { lastJumpedHwId = id; return; }
   if (kind === 'tab') {
-    if (state.activeTabId !== id) setActiveTab(id);
+    if (state.activeTabId !== id || isCalendarView()) setActiveTab(id);
     return;
   }
   const classId = kind === 'class'  ? id
                 : kind === 'folder' ? state.folders.find(f => f.id === id)?.classId
                 :                     state.homework.find(h => h.id === id)?.classId;
   const tabId = state.classes.find(c => c.id === classId)?.tabId;
-  if (tabId && tabId !== state.activeTabId) setActiveTab(tabId);
+  if (tabId && (tabId !== state.activeTabId || isCalendarView())) setActiveTab(tabId);
 
   const el = elementForKey(selKey(kind, id));
   if (!el) return;

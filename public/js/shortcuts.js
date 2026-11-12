@@ -1,8 +1,9 @@
-import { splitKey, state } from './state.js';
+import { defaultClassId, splitKey, state } from './state.js';
 import { sel } from './selection.js';
 import { openHwEditModal, openHwModal } from './hw-modal.js';
 import { handleMarkComplete } from './handlers.js';
 import { isPaletteOpen, lastJumpedHw, openPalette, togglePalette } from './palette.js';
+import { isCalendarView, setView, step } from './calendar.js';
 
 /* =============================================================================
    KEYBOARD SHORTCUTS
@@ -11,6 +12,8 @@ import { isPaletteOpen, lastJumpedHw, openPalette, togglePalette } from './palet
      n             new assignment
      e             edit the assignment you're on
      x             mark it complete
+     b / w / m     board, week or month view
+     ← / →         previous / next week or month, on the calendar
      ?             list these
 
    "The assignment you're on" is, in order: the one selected (if exactly one
@@ -63,7 +66,7 @@ function onKeydown(e) {
     case 'n': {
       e.preventDefault();
       const hw = state.homework.find(h => h.id === targetHw());
-      openHwModal(hw?.classId ?? state.classes.find(c => c.tabId === state.activeTabId)?.id ?? null,
+      openHwModal(hw?.classId ?? defaultClassId(),
                   hw?.folderId ?? null);
       break;
     }
@@ -77,20 +80,28 @@ function onKeydown(e) {
       if (id) { e.preventDefault(); handleMarkComplete(id); }
       break;
     }
+    case 'b': e.preventDefault(); setView('board'); break;
+    case 'w': e.preventDefault(); setView('week');  break;
+    case 'm': e.preventDefault(); setView('month'); break;
+    case 'ArrowLeft':
+    case 'ArrowRight':
+      if (isCalendarView()) { e.preventDefault(); step(e.key === 'ArrowLeft' ? -1 : 1); }
+      break;
   }
 }
 
 function wireShortcuts() {
   document.addEventListener('keydown', onKeydown);
 
-  // Track the hovered assignment. pointerover/out bubble, unlike enter/leave,
-  // so one listener on the board covers cards added by later re-renders.
-  const board = document.getElementById('classes-container');
-  board.addEventListener('pointerover', e => {
+  // Track the hovered assignment, on the board or the calendar. pointerover
+  // bubbles, unlike pointerenter, so one listener covers cards added by later
+  // re-renders.
+  const area = document.querySelector('.tab-content');
+  area.addEventListener('pointerover', e => {
     if (e.pointerType !== 'mouse') return;
-    hoveredHwId = e.target.closest('.hw-item')?.dataset.hwId ?? null;
+    hoveredHwId = e.target.closest('.hw-item, .cal-item')?.dataset.hwId ?? null;
   });
-  board.addEventListener('pointerleave', () => { hoveredHwId = null; });
+  area.addEventListener('pointerleave', () => { hoveredHwId = null; });
 
   document.getElementById('shortcuts-backdrop').addEventListener('click', closeHelp);
   document.getElementById('close-shortcuts').addEventListener('click', closeHelp);

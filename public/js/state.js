@@ -77,4 +77,10 @@ function selKey(type, id) { return KEY_PREFIX[type] + id; }
 function splitKey(key)    { const i = key.indexOf(':'); return [key.slice(0, i), key.slice(i + 1)]; }
 function keyKind(key)     { return key.startsWith('cls:') ? 'class' : 'item'; }
 
-export { containerItems, deadlineValue, folderChildren, groupChildren, keyKind, resortClasses, selKey, splitKey, state };
+// Where a new assignment goes when nothing says otherwise: the first group in
+// the space being looked at, or failing that the first group anywhere.
+function defaultClassId() {
+  return (state.classes.find(c => c.tabId === state.activeTabId) || state.classes[0])?.id ?? null;
+}
+
+export { containerItems, deadlineValue, defaultClassId, folderChildren, groupChildren, keyKind, resortClasses, selKey, splitKey, state };

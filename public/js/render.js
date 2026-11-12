@@ -5,6 +5,7 @@ import { esc, parseDeadline } from './utils.js';
 import { addClassDragBehavior, attachDrag } from './drag.js';
 import { fileIcon, isImageType } from './attachments.js';
 import { openGroupForm, openSettings, populateSettingsTabSelect, resetClassForm } from './settings.js';
+import { hideCalendar, isCalendarView, renderCalendar, setView, updateToggle } from './calendar.js';
 
 /* =============================================================================
    RENDER — TAB BAR
@@ -14,7 +15,8 @@ function renderTabBar() {
   list.innerHTML = '';
   state.tabs.forEach(tab => {
     const btn = document.createElement('button');
-    btn.className = `tab${tab.id===state.activeTabId ? ' tab--active' : ''}`;
+    // The calendar shows every space, so no tab is "the" active one there.
+    btn.className = `tab${tab.id===state.activeTabId && !isCalendarView() ? ' tab--active' : ''}`;
     btn.dataset.tabId = tab.id;
     btn.textContent = tab.name;
     btn.addEventListener('click', () => setActiveTab(tab.id));
@@ -30,6 +32,8 @@ function renderTabBar() {
 
 function setActiveTab(tabId) {
   state.activeTabId = tabId;
+  // Picking a space means "show me that board", even from the calendar.
+  if (isCalendarView()) setView('board', { render: false });
   // A drag switches spaces to carry the held items across, so the selection it
   // is carrying has to survive that; a plain space switch drops it.
   if (!document.body.classList.contains('is-dragging')) clearSelection();
@@ -41,6 +45,11 @@ function setActiveTab(tabId) {
    RENDER — MAIN SCHEDULE
    ============================================================================= */
 function renderSchedule() {
+  // Every caller that changes data re-renders through here, so the calendar
+  // stays current without its own bookkeeping.
+  updateToggle();
+  if (isCalendarView()) { renderCalendar(); return; }
+  hideCalendar();
   const container  = document.getElementById('classes-container');
   const emptyState = document.getElementById('empty-state');
 

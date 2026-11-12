@@ -17,6 +17,7 @@ import { applyCollegeTemplate, applyPersonalTemplate, applyStudentTemplate, appl
 import { subscribeToNotifications, unsubscribeFromNotifications } from './notifications.js';
 import { closePalette, wirePalette } from './palette.js';
 import { closeHelp, wireShortcuts } from './shortcuts.js';
+import { wireCalendar } from './calendar.js';
 
 /* =============================================================================
    WIRE EVENTS
@@ -563,6 +564,7 @@ function wireEvents() {
 
   wirePalette();
   wireShortcuts();
+  wireCalendar();
 }
 
 export { wireEvents };
