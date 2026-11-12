@@ -157,7 +157,7 @@ describe('cleanup', () => {
 
   test('empty input', () => {
     const r = parse('');
-    assert.deepEqual(r, { description: '', classId: null, deadline: null, deadlineTime: null, priority: null, estimateMin: null });
+    assert.deepEqual(r, { description: '', classId: null, deadline: null, deadlineTime: null, priority: null, estimateMin: null, repeat: null });
   });
 });
 
@@ -181,7 +181,7 @@ describe('priority', () => {
 
   test('works alongside a group, date and time', () => {
     const r = parse('bio lab report fri 3pm !high');
-    assert.deepEqual(r, { description: 'lab report', classId: 'bio', deadline: '2026-11-13', deadlineTime: '15:00', priority: 'high', estimateMin: null });
+    assert.deepEqual(r, { description: 'lab report', classId: 'bio', deadline: '2026-11-13', deadlineTime: '15:00', priority: 'high', estimateMin: null, repeat: null });
   });
 
   test('a ! inside a word or a run of !!! is part of the description', () => {
@@ -213,7 +213,7 @@ describe('estimate', () => {
 
   test('works with everything else', () => {
     const r = parse('bio lab report fri 3pm !high ~45m');
-    assert.deepEqual(r, { description: 'lab report', classId: 'bio', deadline: '2026-11-13', deadlineTime: '15:00', priority: 'high', estimateMin: 45 });
+    assert.deepEqual(r, { description: 'lab report', classId: 'bio', deadline: '2026-11-13', deadlineTime: '15:00', priority: 'high', estimateMin: 45, repeat: null });
   });
 
   test('without the ~ it is just words', () => {
@@ -225,5 +225,47 @@ describe('estimate', () => {
   test('a ~ that is not a duration stays put', () => {
     assert.equal(parse('essay ~soon').estimateMin, null);
     assert.equal(parse('essay ~soon').description, 'essay ~soon');
+  });
+});
+
+describe('repeat', () => {
+  // NOW is Wednesday Nov 11 2026.
+  const W = (days, interval = 1) => ({ freq: 'weekly', interval, days });
+  const cases = [
+    ['vocab every day',            { freq: 'daily' },        '2026-11-11'],
+    ['vocab daily',                { freq: 'daily' },        '2026-11-11'],
+    ['vocab every weekday',        W([1, 2, 3, 4, 5]),       '2026-11-11'],
+    ['vocab every mon',            W([1]),                   '2026-11-16'],
+    ['vocab every Monday',         W([1]),                   '2026-11-16'],
+    ['vocab every wed',            W([3]),                   '2026-11-11'],
+    ['vocab every mon, wed & fri', W([1, 3, 5]),             '2026-11-11'],
+    ['vocab every tue and thu',    W([2, 4]),                '2026-11-12'],
+    ['vocab every mon/wed',        W([1, 3]),                '2026-11-11'],
+    ['vocab every other fri',      W([5], 2),                '2026-11-13'],
+    ['vocab weekly fri',           W([5]),                   '2026-11-13'],
+    ['vocab weekly',               W([3]),                   '2026-11-11'],
+    ['vocab biweekly',             W([3], 2),                '2026-11-11'],
+    ['vocab monthly',              { freq: 'monthly', day: 11 }, '2026-11-11'],
+    ['vocab monthly nov 20',       { freq: 'monthly', day: 20 }, '2026-11-20'],
+  ];
+  for (const [input, repeat, deadline] of cases) {
+    test(`"${input}"`, () => {
+      const r = parse(input);
+      assert.deepEqual(r.repeat, repeat);
+      assert.equal(r.deadline, deadline);
+      assert.equal(r.description, 'vocab');
+    });
+  }
+
+  test('keeps the time and group', () => {
+    const r = parse('bio quiz every fri 8am');
+    assert.deepEqual([r.classId, r.description, r.deadline, r.deadlineTime], ['bio', 'quiz', '2026-11-13', '08:00']);
+    assert.deepEqual(r.repeat, W([5]));
+  });
+
+  test('"every" on its own, or inside a word, is just text', () => {
+    assert.equal(parse('read every page').repeat, null);
+    assert.equal(parse('read every page').description, 'read every page');
+    assert.equal(parse('everyday objects essay').repeat, null);
   });
 });

@@ -242,7 +242,7 @@ const api = {
     // `completed`/`completedAt` are accepted so undoing a delete restores an
     // assignment in the state it was deleted in, rather than resurrecting it
     // as active. They default to a fresh, incomplete assignment.
-    async create({ classId, folderId, description, notes, deadline, deadlineTime, deadlineMs, remindBefore, priority, estimateMin, subtasks, attachments, completed, completedAt, order }) {
+    async create({ classId, folderId, description, notes, deadline, deadlineTime, deadlineMs, remindBefore, priority, estimateMin, subtasks, repeat, attachments, completed, completedAt, order }) {
       if (!classId || !description?.trim()) throw new Error('classId and description are required');
       const data = {
         classId,
@@ -262,10 +262,11 @@ const api = {
       if (estimateMin > 0) data.estimateMin = estimateMin;
       const steps = cleanSubtasks(subtasks);
       if (steps.length) data.subtasks = steps;
+      if (repeat) data.repeat = repeat;
       if (Array.isArray(attachments) && attachments.length) data.attachments = attachments;
       return readBack(await userCol('homework').add(data));
     },
-    async update(id, { classId, folderId, description, notes, deadline, deadlineTime, deadlineMs, completed, remindBefore, priority, estimateMin, subtasks, attachments }) {
+    async update(id, { classId, folderId, description, notes, deadline, deadlineTime, deadlineMs, completed, remindBefore, priority, estimateMin, subtasks, repeat, attachments }) {
       const ref      = userCol('homework').doc(id);
       const existing = (await ref.get()).data() || {};
       const update   = {};
@@ -289,6 +290,7 @@ const api = {
       if (priority     !== undefined) update.priority     = priority === 'high' || priority === 'low' ? priority : null;
       if (estimateMin  !== undefined) update.estimateMin  = estimateMin > 0 ? estimateMin : null;
       if (subtasks     !== undefined) { const steps = cleanSubtasks(subtasks); update.subtasks = steps.length ? steps : null; }
+      if (repeat       !== undefined) update.repeat       = repeat || null;
       if (attachments  !== undefined) update.attachments  = Array.isArray(attachments) ? attachments : [];
       // A cleared field arrives as null or '' but may be missing on the stored
       // document, so compare them as equals — otherwise every re-save of an

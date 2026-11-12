@@ -3,7 +3,7 @@
 
    Turns one line like "Bio lab report fri 3pm !high ~45m" into the fields of
    the assignment form:
-   { description, classId, deadline, deadlineTime, priority, estimateMin }.
+   { description, classId, deadline, deadlineTime, priority, estimateMin, repeat }.
 
    Pure on purpose — no DOM, no Firebase, no shared state — so it runs under
    Node's test runner (tests/unit/quickadd.test.js). The caller passes the
@@ -13,6 +13,7 @@
    ============================================================================= */
 
 import { parseDuration } from './duration.js';
+import { firstDue, normalizeRepeat } from './recurrence.js';
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 const MONTH_RE = '(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\\.?';
@@ -177,6 +178,32 @@ function takeEstimate(text) {
   return { estimateMin: min, text: text.slice(0, start) + ' ' + text.slice(start + m[0].length - m[1].length) };
 }
 
+/* "every day", "daily", "every weekday", "weekly", "every other week",
+   "monthly", "every mon", "every other tue", "every mon, wed & fri". Runs
+   before dates so the weekdays here aren't read as a due date. */
+const REPEAT_WORDS = [
+  [/\b(?:every\s+day|daily)\b/i,                                    () => ({ freq: 'daily' })],
+  [/\b(?:every\s+week\s*day|week\s*days)\b/i,                     () => ({ freq: 'weekly', days: [1, 2, 3, 4, 5] })],
+  [/\b(?:every\s+(?:other|2(?:nd)?)\s+weeks?|bi-?weekly)\b/i,      () => ({ freq: 'weekly', interval: 2 })],
+  [/\b(?:every\s+week|weekly)\b/i,                                 () => ({ freq: 'weekly' })],
+  [/\b(?:every\s+month|monthly)\b/i,                               () => ({ freq: 'monthly' })],
+];
+const EVERY_DAYS_RE = new RegExp(`\\bevery\\s+(other\\s+)?(${WEEKDAY_RE}(?:\\s*(?:,|&|/|\\band\\b)?\\s*${WEEKDAY_RE})*)\\b`, 'i');
+
+function takeRepeat(text) {
+  const m = text.match(EVERY_DAYS_RE);
+  if (m) {
+    const days = [...m[2].matchAll(new RegExp(WEEKDAY_RE, 'gi'))].map(d => WEEKDAYS[d[1].slice(0, 3).toLowerCase()]);
+    return { repeat: { freq: 'weekly', interval: m[1] ? 2 : 1, days },
+             text: text.slice(0, m.index) + ' ' + text.slice(m.index + m[0].length) };
+  }
+  for (const [re, rule] of REPEAT_WORDS) {
+    const w = text.match(re);
+    if (w) return { repeat: rule(), text: text.slice(0, w.index) + ' ' + text.slice(w.index + w[0].length) };
+  }
+  return { repeat: null, text };
+}
+
 function tidy(s) {
   return s.replace(/\s+/g, ' ')
           .replace(/^[\s,;:\-–—]+|[\s,;:\-–—]+$/g, '')
@@ -192,7 +219,7 @@ function tidy(s) {
  * @param {string} [opts.activeTabId]
  * @param {Date}   [opts.now]
  * @returns {{ description: string, classId: string|null, deadline: string|null, deadlineTime: string|null,
- *             priority: 'high'|'low'|null, estimateMin: number|null }}
+ *             priority: 'high'|'low'|null, estimateMin: number|null, repeat: object|null }}
  */
 function parseQuickAdd(input, { groups = [], activeTabId = null, now = new Date() } = {}) {
   const today = startOfDay(now);
@@ -202,11 +229,21 @@ function parseQuickAdd(input, { groups = [], activeTabId = null, now = new Date(
   // Before times, so "~1:30" isn't read as half past one.
   const est  = takeEstimate(text);            text = est.text;
 
+  const rep  = takeRepeat(text);              text = rep.text;
+
   const time = take(text, TIME_RULES, today);  text = time.text;
   const date = take(text, DATE_RULES, today);  text = date.text;
 
   let deadline = date.value ? ymd(date.value) : null;
   const deadlineTime = time.value;
+
+  // A repeat fills in from the due date ("weekly fri" → Fridays), and with no
+  // due date, the first day it lands on is when it's due.
+  let repeat = null;
+  if (rep.repeat) {
+    repeat = normalizeRepeat(rep.repeat, deadline ?? ymd(today));
+    if (!deadline) deadline = firstDue(repeat, ymd(today));
+  }
   // A time with no date: today if that time is still ahead, otherwise tomorrow.
   if (deadlineTime && !deadline) {
     const [h, m] = deadlineTime.split(':').map(Number);
@@ -224,6 +261,7 @@ function parseQuickAdd(input, { groups = [], activeTabId = null, now = new Date(
     deadlineTime,
     priority: prio.priority,
     estimateMin: est.estimateMin,
+    repeat,
   };
 }
 
