@@ -180,7 +180,8 @@ function buildHwItem(hw, draggable = false) {
   const hasAttachments = !!(hw.attachments && hw.attachments.length);
   const isExpandable = !!(hasMultiLineNotes || hw.description.length > 50 || hasAttachments);
   const startExpanded = isExpandable && new Set(prefs.get('expandedHw', [])).has(hw.id);
-  item.className = `hw-item${isExpandable ? ' hw-item--collapsible' : ''}${startExpanded ? ' hw-item--expanded' : ''}`;
+  const prio = hw.priority === 'high' || hw.priority === 'low' ? ` hw-item--${hw.priority}` : '';
+  item.className = `hw-item${prio}${isExpandable ? ' hw-item--collapsible' : ''}${startExpanded ? ' hw-item--expanded' : ''}`;
   item.dataset.hwId = hw.id;
 
   const dl     = parseDeadline(hw.deadline, hw.deadlineTime);
@@ -206,7 +207,7 @@ function buildHwItem(hw, draggable = false) {
       <span class="custom-check"></span>
     </label>
     <div class="hw-body">
-      <span class="hw-desc">${esc(hw.description)}</span>
+      <span class="hw-desc">${hw.priority === 'high' ? '<span class="prio-flag" title="High priority" aria-label="High priority">!</span>' : ''}${esc(hw.description)}</span>
       ${hintHtml}
       ${notesHtml}
       ${attachmentsHtml}

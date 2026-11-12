@@ -93,7 +93,8 @@ function rowHtml(row, i) {
     const due = parseDeadline(p.deadline, p.deadlineTime);
     icon  = '<span class="palette-icon palette-icon--create">+</span>';
     title = `Create “${esc(p.description)}”`;
-    meta  = [cls && `${groupDot(cls)}${esc(cls.name)}`, due && esc(due.label)].filter(Boolean).join(' · ');
+    const prio = p.priority === 'high' ? '<span class="prio-flag">!</span>High priority' : p.priority === 'low' ? 'Low priority' : '';
+    meta  = [cls && `${groupDot(cls)}${esc(cls.name)}`, due && esc(due.label), prio].filter(Boolean).join(' · ');
   } else if (row.type === 'hw') {
     const hw = state.homework.find(h => h.id === row.id);
     const cls = clsOf(hw.classId);

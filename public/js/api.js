@@ -241,7 +241,7 @@ const api = {
     // `completed`/`completedAt` are accepted so undoing a delete restores an
     // assignment in the state it was deleted in, rather than resurrecting it
     // as active. They default to a fresh, incomplete assignment.
-    async create({ classId, folderId, description, notes, deadline, deadlineTime, deadlineMs, remindBefore, attachments, completed, completedAt, order }) {
+    async create({ classId, folderId, description, notes, deadline, deadlineTime, deadlineMs, remindBefore, priority, attachments, completed, completedAt, order }) {
       if (!classId || !description?.trim()) throw new Error('classId and description are required');
       const data = {
         classId,
@@ -257,10 +257,11 @@ const api = {
       if (deadlineTime) data.deadlineTime = deadlineTime;
       if (remindBefore !== undefined && remindBefore !== null) data.remindBefore = remindBefore;
       if (deadlineMs != null) data.deadlineMs = deadlineMs;
+      if (priority === 'high' || priority === 'low') data.priority = priority;
       if (Array.isArray(attachments) && attachments.length) data.attachments = attachments;
       return readBack(await userCol('homework').add(data));
     },
-    async update(id, { classId, folderId, description, notes, deadline, deadlineTime, deadlineMs, completed, remindBefore, attachments }) {
+    async update(id, { classId, folderId, description, notes, deadline, deadlineTime, deadlineMs, completed, remindBefore, priority, attachments }) {
       const ref      = userCol('homework').doc(id);
       const existing = (await ref.get()).data() || {};
       const update   = {};
@@ -280,9 +281,15 @@ const api = {
       }
       if (remindBefore !== undefined) update.remindBefore = remindBefore;
       if (deadlineMs   !== undefined) update.deadlineMs   = deadlineMs;
+      // null (or 'normal') clears it back to normal
+      if (priority     !== undefined) update.priority     = priority === 'high' || priority === 'low' ? priority : null;
       if (attachments  !== undefined) update.attachments  = Array.isArray(attachments) ? attachments : [];
-      if ((deadline     !== undefined && deadline     !== existing.deadline) ||
-          (deadlineTime !== undefined && deadlineTime !== existing.deadlineTime)) {
+      // A cleared field arrives as null or '' but may be missing on the stored
+      // document, so compare them as equals — otherwise every re-save of an
+      // untimed assignment would reset remindedAt and send its reminder again.
+      const same = (a, b) => (a || null) === (b || null);
+      if ((deadline     !== undefined && !same(deadline,     existing.deadline)) ||
+          (deadlineTime !== undefined && !same(deadlineTime, existing.deadlineTime))) {
         update.remindedAt = null;
       }
       if (Object.keys(update).length) await ref.update(update);

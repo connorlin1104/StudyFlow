@@ -237,6 +237,14 @@
             <option value="-1">No reminder</option>
           </select>
         </div>
+        <div class="form-group">
+          <span class="form-label" id="hw-priority-label">Priority</span>
+          <div class="segmented" role="radiogroup" aria-labelledby="hw-priority-label">
+            <label class="segmented-opt"><input type="radio" name="hw-priority" value="low"><span>Low</span></label>
+            <label class="segmented-opt"><input type="radio" name="hw-priority" value="normal" checked><span>Normal</span></label>
+            <label class="segmented-opt segmented-opt--high"><input type="radio" name="hw-priority" value="high"><span>! High</span></label>
+          </div>
+        </div>
         <div class="form-actions">
           <button type="button" class="btn btn-secondary" id="cancel-hw">Cancel</button>
           <button type="submit" class="btn btn-primary" id="hw-form-submit">Add to Schedule</button>
@@ -631,6 +639,13 @@
         <button class="close-btn" id="close-whats-new" aria-label="Close">&times;</button>
       </div>
       <div class="release-notes">
+        <div class="release-block">
+          <h3 class="release-version">v1.15 &mdash; November 2026</h3>
+          <ul>
+            <li><strong>Priority</strong> &mdash; mark an assignment <strong>High</strong> or <strong>Low</strong> in its form, or right-click one (or a whole selection) and pick <strong>Priority</strong>. High-priority work gets a red <strong>!</strong> and goes first among things due at the same time. In quick add, type <em>!high</em> or <em>!low</em>.</li>
+            <li>Fixed: clearing an assignment&rsquo;s due date, notes or last attachment in the edit form now actually removes it.</li>
+          </ul>
+        </div>
         <div class="release-block">
           <h3 class="release-version">v1.14 &mdash; November 2026</h3>
           <ul>

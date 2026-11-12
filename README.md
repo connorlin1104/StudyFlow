@@ -142,6 +142,9 @@ pushSubscriptions/{subId}         # { uid, endpoint, keys, notifyBefore }
 ```
 
 Every collection carries an integer `order` field driving drag-to-reorder.
+An assignment's `priority` is `'high'`, `'low'`, or absent for normal, so
+documents saved before priorities existed need no migration; it only breaks
+ties after manual order and due time (`priorityRank()` in `state.js`).
 Attachments are stored at `users/{uid}/hw-attachments/...` in Cloud Storage and
 referenced from the homework document.
 

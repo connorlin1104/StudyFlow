@@ -5,6 +5,12 @@ import { renderFormAttachments, setFormAttachments } from './attachments.js';
 /* =============================================================================
    HOMEWORK MODAL
    ============================================================================= */
+function setPriorityInput(priority) {
+  const value = priority === 'high' || priority === 'low' ? priority : 'normal';
+  const radio = document.querySelector(`input[name="hw-priority"][value="${value}"]`);
+  if (radio) radio.checked = true;
+}
+
 function openHwModal(preselectedClassId = null, preselectedFolderId = null) {
   if (state.classes.length === 0) {
     toast('Add some topics first in Settings.', 'warning');
@@ -48,6 +54,7 @@ function openHwEditModal(hwId) {
   document.getElementById('hw-edit-id').value             = hw.id;
   document.getElementById('hw-desc').value                = hw.description || '';
   document.getElementById('hw-notes').value               = hw.notes       || '';
+  setPriorityInput(hw.priority);
   document.getElementById('hw-deadline').value = hw.deadline || '';
   // Restore time picker
   if (hw.deadlineTime) {
@@ -82,10 +89,11 @@ function openHwEditModal(hwId) {
 /* A new-assignment form with some fields already filled — from quick add in
    the palette, or from clicking a day on the calendar. Still just a form: the
    user reviews it and nothing is saved until they submit. */
-function openHwModalPrefilled({ description = '', classId = null, folderId = null, deadline = null, deadlineTime = null } = {}) {
+function openHwModalPrefilled({ description = '', classId = null, folderId = null, deadline = null, deadlineTime = null, priority = null } = {}) {
   openHwModal(classId, folderId);
   if (!document.getElementById('hw-modal').classList.contains('modal--open')) return; // no groups yet
   document.getElementById('hw-desc').value = description;
+  setPriorityInput(priority);
   if (deadline) {
     document.getElementById('hw-deadline').value = deadline;
     // Setting .value doesn't fire 'change', which is what reveals the reminder.

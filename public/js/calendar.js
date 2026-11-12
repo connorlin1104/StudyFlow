@@ -73,9 +73,10 @@ function itemHtml(hw, cls, { sub = '', showTime = true, today }) {
   const overdue = hw.deadline < today
     || (hw.deadline === today && hw.deadlineTime && new Date(`${hw.deadline}T${hw.deadlineTime}`) < new Date());
   const time = showTime ? shortTime(hw.deadlineTime) : '';
-  return `<div class="cal-item${overdue ? ' cal-item--overdue' : ''}" data-hw-id="${esc(hw.id)}"
-      style="--color:${esc(cls.color || '#94a3b8')}" title="${esc(hw.description)} — ${esc(cls.name)}">
-    <span class="cal-item-line">${time ? `<span class="cal-item-time">${time}</span>` : ''}<span class="cal-item-desc">${esc(hw.description)}</span></span>
+  const high = hw.priority === 'high', low = hw.priority === 'low';
+  return `<div class="cal-item${overdue ? ' cal-item--overdue' : ''}${high ? ' cal-item--high' : low ? ' cal-item--low' : ''}" data-hw-id="${esc(hw.id)}"
+      style="--color:${esc(cls.color || '#94a3b8')}" title="${high ? 'High priority: ' : ''}${esc(hw.description)} — ${esc(cls.name)}">
+    <span class="cal-item-line">${high ? '<span class="prio-flag" aria-label="High priority">!</span>' : ''}${time ? `<span class="cal-item-time">${time}</span>` : ''}<span class="cal-item-desc">${esc(hw.description)}</span></span>
     ${sub ? `<span class="cal-item-group">${esc(sub)}</span>` : ''}
   </div>`;
 }

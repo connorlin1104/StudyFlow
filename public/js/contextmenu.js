@@ -4,7 +4,7 @@ import { esc } from './utils.js';
 import { moveClasses, moveItems } from './drag.js';
 import { startEditClass } from './settings.js';
 import { openHwEditModal, openHwModal } from './hw-modal.js';
-import { deleteClasses, deleteItems } from './handlers.js';
+import { deleteClasses, deleteItems, setPriority } from './handlers.js';
 import { disbandFolder, promptNewFolder, promptRenameFolder } from './folders.js';
 
 /* =============================================================================
@@ -142,6 +142,9 @@ function renderCtxRoot() {
     menu.appendChild(ctxBtn('Edit', '✎', () => { closeContextMenu(); openHwEditModal(id); }));
   }
   menu.appendChild(ctxBtn('Move to…', '↗', () => renderCtxMoveItems(), { arrow: true }));
+  if (itemsInKeys(keys).hw.length) {
+    menu.appendChild(ctxBtn('Priority', '!', () => renderCtxPriority(), { arrow: true }));
+  }
   if (!keys.some(k => k.startsWith('fd:'))) {
     menu.appendChild(ctxBtn(multi ? `New folder from ${keys.length} assignments` : 'New folder from this', '📂',
       () => { closeContextMenu(); promptNewFolder(null, keys); }));
@@ -186,6 +189,26 @@ function renderCtxMoveItems() {
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
       .forEach(f => menu.appendChild(ctxBtn(f.name, '📂',
         () => { closeContextMenu(); moveItems(keys, cls.id, f.id, null); }, { indent: true })));
+  });
+  positionCtxMenu();
+}
+
+/* A selected folder brings its assignments along, same as delete does. The
+   current setting gets a check when every affected assignment shares it. */
+function renderCtxPriority() {
+  const menu = document.getElementById('context-menu');
+  if (!menu || !_ctx) return;
+  const hw = itemsInKeys(_ctx.keys).hw;
+  const current = new Set(hw.map(h => h.priority === 'high' || h.priority === 'low' ? h.priority : 'normal'));
+  menu.innerHTML = '';
+  menu.appendChild(ctxBtn('Back', '‹', () => renderCtxRoot()));
+  menu.appendChild(ctxDivider());
+  [['high', 'High'], ['normal', 'Normal'], ['low', 'Low']].forEach(([value, label]) => {
+    const on = current.size === 1 && current.has(value);
+    menu.appendChild(ctxBtn(label, on ? '✓' : '', () => {
+      closeContextMenu();
+      setPriority(hw.map(h => h.id), value);
+    }));
   });
   positionCtxMenu();
 }

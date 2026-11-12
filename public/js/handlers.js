@@ -74,16 +74,29 @@ async function handleAddHomework(e) {
   const attachments = formAttachments
     .filter(a => a.url && !a.error)
     .map(({ name, type, url, storagePath }) => ({ name, type, url, storagePath }));
-  const payload = {
+  const priority = document.querySelector('input[name="hw-priority"]:checked')?.value;
+  const priorityVal = priority === 'high' || priority === 'low' ? priority : null;
+
+  /* Editing sends every field, empty ones as null or '', because
+     api.homework.update skips anything undefined — leaving a field out of the
+     payload keeps the old value. That's how clearing a due date, notes or the
+     last attachment in this form used to silently do nothing. */
+  const payload = editId ? {
+    classId, description, notes, attachments, remindBefore,
+    deadline:     deadline     || null,
+    deadlineTime: deadlineTime || null,
+    deadlineMs,
+    priority:     priorityVal,
+  } : {
     classId, description,
-    ...(!editId && folderId && state.folders.some(f => f.id === folderId && f.classId === classId) && { folderId }),
+    ...(folderId && state.folders.some(f => f.id === folderId && f.classId === classId) && { folderId }),
     ...(notes             && { notes }),
     ...(attachments.length && { attachments }),
     ...(deadline          && { deadline }),
     ...(deadlineTime      && { deadlineTime }),
     ...(deadlineMs  != null && { deadlineMs }),
-    // In edit mode always include remindBefore (even null) so server can clear legacy 0 values
-    ...(editId ? { remindBefore } : remindBefore != null ? { remindBefore } : {})
+    ...(remindBefore != null && { remindBefore }),
+    ...(priorityVal       && { priority: priorityVal }),
   };
 
   try {
@@ -351,6 +364,34 @@ async function handleMarkComplete(hwId) {
   } catch (err) { toast(`Error: ${err.message}`, 'error'); }
 }
 
+/* Set the priority of several assignments at once (from the right-click menu).
+   Undo puts each one back to whatever it had before, which may differ. */
+async function setPriority(hwIds, priority) {
+  const value  = priority === 'high' || priority === 'low' ? priority : null;
+  const before = new Map(hwIds.map(id => [id, state.homework.find(h => h.id === id)?.priority ?? null]));
+  const ids    = [...before.keys()].filter(id => state.homework.some(h => h.id === id) && before.get(id) !== value);
+  if (!ids.length) return;
+
+  const apply = async valueFor => {
+    await Promise.all(ids.map(id => api.homework.update(id, { priority: valueFor(id) })));
+    ids.forEach(id => {
+      const h = state.homework.find(x => x.id === id);
+      if (h) h.priority = valueFor(id);
+    });
+    renderSchedule();
+  };
+  const label = value ? `${value} priority` : 'normal priority';
+  const what  = ids.length === 1 ? `"${state.homework.find(h => h.id === ids[0]).description}"` : `${ids.length} assignments`;
+  try {
+    await apply(() => value);
+    toast(`Set ${what} to ${label}`, 'success');
+    history.push({
+      async undo() { await apply(id => before.get(id)); toast(`Restored priority on ${what}`, 'info'); },
+      async redo() { await apply(() => value);          toast(`Set ${what} to ${label}`, 'success'); }
+    });
+  } catch (err) { toast(`Error: ${err.message}`, 'error'); }
+}
+
 /* -----------------------------------------------------------------------------
    DELETE — assignments and folders
 
@@ -503,4 +544,4 @@ async function deleteClasses(ids) {
 
 function handleDeleteClass(classId) { return deleteClasses([classId]); }
 
-export { deleteClasses, deleteItems, handleAddHomework, handleAddTab, handleClassFormSubmit, handleDeleteClass, handleDeleteHw, handleDeleteTab, handleMarkComplete };
+export { deleteClasses, deleteItems, handleAddHomework, setPriority, handleAddTab, handleClassFormSubmit, handleDeleteClass, handleDeleteHw, handleDeleteTab, handleMarkComplete };

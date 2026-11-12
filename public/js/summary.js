@@ -1,4 +1,4 @@
-import { state } from './state.js';
+import { deadlineValue, priorityRank, state } from './state.js';
 import { prefs } from './prefs.js';
 import { esc, parseDeadline } from './utils.js';
 
@@ -12,13 +12,10 @@ function renderSummary() {
 
   const pending = state.homework
     .filter(h => !h.completed)
-    .sort((a,b) => {
-      if (!a.deadline && !b.deadline) return 0;
-      if (!a.deadline) return 1;
-      if (!b.deadline) return -1;
-      const ta = new Date(a.deadline + (a.deadlineTime ? `T${a.deadlineTime}` : 'T23:59'));
-      const tb = new Date(b.deadline + (b.deadlineTime ? `T${b.deadlineTime}` : 'T23:59'));
-      return ta - tb;
+    // Due time first (undated last), then high priority before low.
+    .sort((a, b) => {
+      const da = deadlineValue(a), db = deadlineValue(b);
+      return (da === db ? 0 : da - db) || priorityRank(a) - priorityRank(b);
     });
 
   countBadge.textContent = pending.length;
@@ -48,7 +45,7 @@ function renderSummary() {
     item.innerHTML = `
       <div class="summary-color-bar"></div>
       <div class="summary-body">
-        <span class="summary-desc">${esc(hw.description)}</span>
+        <span class="summary-desc">${hw.priority === 'high' ? '<span class="prio-flag" title="High priority">!</span>' : ''}${esc(hw.description)}</span>
         <span class="summary-meta">${esc(metaParts.join(' · '))}</span>
       </div>
       <div class="summary-aside">

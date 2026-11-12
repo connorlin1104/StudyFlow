@@ -2652,3 +2652,48 @@ html.pwa-mode body {
   .add-hw-label { display: none; }
   #add-hw-btn { min-width: 36px; padding-left: 0; padding-right: 0; font-size: 1.15rem; }
 }
+
+/* =============================================================================
+   PRIORITY  (Phase 5 — stored as hw.priority: 'high' | 'low', absent = normal)
+   ============================================================================= */
+.form-label {
+  font-size: .74rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.segmented {
+  display: inline-flex;
+  align-self: flex-start;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.segmented-opt {
+  position: relative;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: .85rem;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+}
+.segmented-opt + .segmented-opt { border-left: 1.5px solid var(--border); }
+.segmented-opt input { position: absolute; opacity: 0; pointer-events: none; }
+.segmented-opt span { display: block; padding: 6px 14px; transition: background var(--t), color var(--t); }
+.segmented-opt:hover span { background: color-mix(in srgb, var(--primary) 8%, transparent); }
+.segmented-opt input:checked + span { background: var(--primary); color: #fff; }
+.segmented-opt--high input:checked + span { background: var(--danger); }
+.segmented-opt input:focus-visible + span { outline: 2px solid var(--primary); outline-offset: -2px; }
+
+.prio-flag {
+  display: inline-block;
+  margin-right: 5px;
+  color: var(--danger);
+  font-weight: 800;
+}
+.hw-item--high { box-shadow: inset 3px 0 0 var(--danger); }
+.hw-item--low .hw-desc,
+.cal-item--low .cal-item-desc { color: var(--text-muted); }
+.cal-item .prio-flag { margin-right: 0; flex-shrink: 0; }
