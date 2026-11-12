@@ -1,8 +1,9 @@
 /* =============================================================================
    QUICK-ADD PARSER
 
-   Turns one line like "Bio lab report fri 3pm !high" into the fields of the
-   assignment form: { description, classId, deadline, deadlineTime, priority }.
+   Turns one line like "Bio lab report fri 3pm !high ~45m" into the fields of
+   the assignment form:
+   { description, classId, deadline, deadlineTime, priority, estimateMin }.
 
    Pure on purpose — no DOM, no Firebase, no shared state — so it runs under
    Node's test runner (tests/unit/quickadd.test.js). The caller passes the
@@ -10,6 +11,8 @@
    understood and opens the normal assignment form pre-filled, so a misread is
    always caught before it lands on the board.
    ============================================================================= */
+
+import { parseDuration } from './duration.js';
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 const MONTH_RE = '(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\\.?';
@@ -162,6 +165,18 @@ function takePriority(text) {
   };
 }
 
+// "~45m", "~1h", "~1.5h", "~1h30", "~1:30" — a time estimate. The ~ is
+// required, so "read 30 min a day" stays a description.
+const ESTIMATE_RE = /(^|\s)~\s*(\d[\d.:,]*\s*(?:h|hrs?|hours?|m|mins?|minutes?)?(?:\d+m?)?)(?=\s|$)/i;
+
+function takeEstimate(text) {
+  const m = text.match(ESTIMATE_RE);
+  const min = m && parseDuration(m[2]);
+  if (!min) return { estimateMin: null, text };
+  const start = m.index + m[1].length;
+  return { estimateMin: min, text: text.slice(0, start) + ' ' + text.slice(start + m[0].length - m[1].length) };
+}
+
 function tidy(s) {
   return s.replace(/\s+/g, ' ')
           .replace(/^[\s,;:\-–—]+|[\s,;:\-–—]+$/g, '')
@@ -176,13 +191,16 @@ function tidy(s) {
  * @param {Array<{id,name,tabId}>} opts.groups
  * @param {string} [opts.activeTabId]
  * @param {Date}   [opts.now]
- * @returns {{ description: string, classId: string|null, deadline: string|null, deadlineTime: string|null, priority: 'high'|'low'|null }}
+ * @returns {{ description: string, classId: string|null, deadline: string|null, deadlineTime: string|null,
+ *             priority: 'high'|'low'|null, estimateMin: number|null }}
  */
 function parseQuickAdd(input, { groups = [], activeTabId = null, now = new Date() } = {}) {
   const today = startOfDay(now);
   let text = ` ${input || ''} `;
 
   const prio = takePriority(text);            text = prio.text;
+  // Before times, so "~1:30" isn't read as half past one.
+  const est  = takeEstimate(text);            text = est.text;
 
   const time = take(text, TIME_RULES, today);  text = time.text;
   const date = take(text, DATE_RULES, today);  text = date.text;
@@ -205,6 +223,7 @@ function parseQuickAdd(input, { groups = [], activeTabId = null, now = new Date(
     deadline,
     deadlineTime,
     priority: prio.priority,
+    estimateMin: est.estimateMin,
   };
 }
 

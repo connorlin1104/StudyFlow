@@ -157,7 +157,7 @@ describe('cleanup', () => {
 
   test('empty input', () => {
     const r = parse('');
-    assert.deepEqual(r, { description: '', classId: null, deadline: null, deadlineTime: null, priority: null });
+    assert.deepEqual(r, { description: '', classId: null, deadline: null, deadlineTime: null, priority: null, estimateMin: null });
   });
 });
 
@@ -181,7 +181,7 @@ describe('priority', () => {
 
   test('works alongside a group, date and time', () => {
     const r = parse('bio lab report fri 3pm !high');
-    assert.deepEqual(r, { description: 'lab report', classId: 'bio', deadline: '2026-11-13', deadlineTime: '15:00', priority: 'high' });
+    assert.deepEqual(r, { description: 'lab report', classId: 'bio', deadline: '2026-11-13', deadlineTime: '15:00', priority: 'high', estimateMin: null });
   });
 
   test('a ! inside a word or a run of !!! is part of the description', () => {
@@ -189,5 +189,41 @@ describe('priority', () => {
     assert.equal(parse('wow!').description, 'wow!');
     assert.equal(parse('finish it !!!').priority, null);
     assert.equal(parse('read !hamlet').priority, null);
+  });
+});
+
+describe('estimate', () => {
+  const cases = [
+    ['essay ~45m', 45], ['essay ~45', 45], ['essay ~1h', 60], ['essay ~1.5h', 90],
+    ['essay ~1h30', 90], ['~1:30 essay', 90], ['essay ~ 2h', 120], ['essay ~2 hrs', 120],
+  ];
+  for (const [input, want] of cases) {
+    test(`"${input}" → ${want} min`, () => {
+      const r = parse(input);
+      assert.equal(r.estimateMin, want);
+      assert.equal(r.description, 'essay');
+    });
+  }
+
+  test('~1:30 is an estimate, not a due time', () => {
+    const r = parse('essay ~1:30');
+    assert.equal(r.deadlineTime, null);
+    assert.equal(r.deadline, null);
+  });
+
+  test('works with everything else', () => {
+    const r = parse('bio lab report fri 3pm !high ~45m');
+    assert.deepEqual(r, { description: 'lab report', classId: 'bio', deadline: '2026-11-13', deadlineTime: '15:00', priority: 'high', estimateMin: 45 });
+  });
+
+  test('without the ~ it is just words', () => {
+    const r = parse('read 30 min a day');
+    assert.equal(r.estimateMin, null);
+    assert.equal(r.description, 'read 30 min a day');
+  });
+
+  test('a ~ that is not a duration stays put', () => {
+    assert.equal(parse('essay ~soon').estimateMin, null);
+    assert.equal(parse('essay ~soon').description, 'essay ~soon');
   });
 });
