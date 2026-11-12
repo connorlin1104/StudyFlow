@@ -12,7 +12,7 @@ import { isCalendarView, setView, step } from './calendar.js';
      n             new assignment
      e             edit the assignment you're on
      x             mark it complete
-     b / w / m     board, week or month view
+     b / t / w / m board, today, week or month view
      ← / →         previous / next week or month, on the calendar
      ?             list these
 
@@ -81,6 +81,7 @@ function onKeydown(e) {
       break;
     }
     case 'b': e.preventDefault(); setView('board'); break;
+    case 't': e.preventDefault(); setView('today'); break;
     case 'w': e.preventDefault(); setView('week');  break;
     case 'm': e.preventDefault(); setView('month'); break;
     case 'ArrowLeft':
@@ -99,7 +100,7 @@ function wireShortcuts() {
   const area = document.querySelector('.tab-content');
   area.addEventListener('pointerover', e => {
     if (e.pointerType !== 'mouse') return;
-    hoveredHwId = e.target.closest('.hw-item, .cal-item')?.dataset.hwId ?? null;
+    hoveredHwId = e.target.closest('.hw-item, .cal-item, .today-item')?.dataset.hwId ?? null;
   });
   area.addEventListener('pointerleave', () => { hoveredHwId = null; });
 

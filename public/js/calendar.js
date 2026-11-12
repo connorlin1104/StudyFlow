@@ -10,6 +10,7 @@ import { openHwEditModal, openHwModalPrefilled } from './hw-modal.js';
 import { formatDuration, totalEstimate } from './duration.js';
 import { subtaskProgress } from './subtasks.js';
 import { describeRepeat } from './recurrence.js';
+import { renderToday, revealInToday, wireToday } from './today.js';
 import { bucket, deadlineMsFor, monthGrid, parseYmd, rangeLabel, shiftAnchor, viewRange, weekDays, ymd } from './calendar-dates.js';
 
 /* =============================================================================
@@ -20,12 +21,16 @@ import { bucket, deadlineMsFor, monthGrid, parseYmd, rangeLabel, shiftAnchor, vi
    between two spaces is still a clash. Clicking a space tab goes back to that
    space's board.
 
+   The Today view (today.js) rides on the same switch and container: it's a
+   view like the others as far as the toggle, the tab bar and renderSchedule()
+   are concerned.
+
    This isn't a second copy of the data. renderSchedule() calls renderCalendar()
    instead of drawing the board while a calendar view is on, so every add,
    edit, undo and refresh that already re-renders the board keeps this current.
    ============================================================================= */
 
-const VIEWS = ['board', 'week', 'month'];
+const VIEWS = ['board', 'today', 'week', 'month'];
 let view   = VIEWS.includes(prefs.get('view')) ? prefs.get('view') : 'board';
 let anchor = new Date();          // any day inside the week/month on screen
 
@@ -58,6 +63,7 @@ function updateToggle() {
 }
 
 function step(dir) {
+  if (view === 'today') return;
   anchor = dir === 0 ? new Date() : shiftAnchor(view, anchor, dir);
   renderCalendar();
 }
@@ -142,6 +148,7 @@ function renderCalendar() {
   $('classes-container').classList.add('hidden');
   $('empty-state').classList.add('hidden');
   root.classList.remove('hidden');
+  if (view === 'today') { renderToday(root); return; }
 
   const month = view === 'month';
   const today = ymd(new Date());
@@ -184,6 +191,7 @@ function hideCalendar() { $('calendar-container').classList.add('hidden'); $('cl
 /** Bring an assignment into view on the calendar and flash it. Returns false
     if it can't be shown here (no due date), so the caller can use the board. */
 function revealInCalendar(hwId) {
+  if (view === 'today') return revealInToday($('calendar-container'), hwId);
   const hw = state.homework.find(h => h.id === hwId);
   if (!hw?.deadline) return false;
   anchor = parseYmd(hw.deadline);
@@ -296,6 +304,8 @@ function wireCalendar() {
   document.querySelectorAll('.view-btn').forEach(b =>
     b.addEventListener('click', () => setView(b.dataset.view)));
   updateToggle();
+
+  wireToday(root, (next, date) => { if (date) anchor = parseYmd(date); setView(next); });
 
   root.addEventListener('pointerdown', onPointerDown);
   document.addEventListener('pointermove', onPointerMove);

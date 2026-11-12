@@ -132,6 +132,7 @@
         <div class="tab-list" id="tab-list"></div>
         <div class="view-toggle" role="group" aria-label="View">
           <button class="view-btn view-btn--active" data-view="board" aria-pressed="true" title="Board (B)">Board</button>
+          <button class="view-btn" data-view="today" aria-pressed="false" title="Today (T)">Today</button>
           <button class="view-btn" data-view="week" aria-pressed="false" title="Week (W)">Week</button>
           <button class="view-btn" data-view="month" aria-pressed="false" title="Month (M)">Month</button>
         </div>
@@ -668,6 +669,13 @@
       </div>
       <div class="release-notes">
         <div class="release-block">
+          <h3 class="release-version">v1.16 &mdash; November 2026</h3>
+          <ul>
+            <li><strong>Today</strong> &mdash; a new view (or press <kbd>T</kbd>) that plans your day: overdue work first, then what&rsquo;s due today and tomorrow, then the soonest of the rest until your daily study time is used up. It goes by your time estimates, takes off steps you&rsquo;ve ticked, and gives a big assignment a head start (&ldquo;45m of 3h&rdquo;) when it won&rsquo;t fit.</li>
+            <li>Set your <strong>study time</strong> at the top of Today; it&rsquo;s saved to your account, so every device uses the same one. Today also warns you about heavy days later in the week, so you can start early.</li>
+          </ul>
+        </div>
+        <div class="release-block">
           <h3 class="release-version">v1.15 &mdash; November 2026</h3>
           <ul>
             <li><strong>Priority</strong> &mdash; mark an assignment <strong>High</strong> or <strong>Low</strong> in its form, or right-click one (or a whole selection) and pick <strong>Priority</strong>. High-priority work gets a red <strong>!</strong> and goes first among things due at the same time. In quick add, type <em>!high</em> or <em>!low</em>.</li>
@@ -875,7 +883,7 @@
         <dt><kbd>N</kbd></dt><dd>New assignment</dd>
         <dt><kbd>E</kbd></dt><dd>Edit the assignment you&rsquo;re on</dd>
         <dt><kbd>X</kbd></dt><dd>Mark it complete</dd>
-        <dt><kbd>B</kbd> <kbd>W</kbd> <kbd>M</kbd></dt><dd>Board, week or month view</dd>
+        <dt><kbd>B</kbd> <kbd>T</kbd> <kbd>W</kbd> <kbd>M</kbd></dt><dd>Board, today, week or month view</dd>
         <dt><kbd>&larr;</kbd> <kbd>&rarr;</kbd></dt><dd>Previous / next week or month</dd>
         <dt><kbd>Ctrl</kbd>/<kbd>&#8984;</kbd> <kbd>Z</kbd></dt><dd>Undo</dd>
         <dt><kbd>Ctrl</kbd>/<kbd>&#8984;</kbd> <kbd>Y</kbd></dt><dd>Redo</dd>

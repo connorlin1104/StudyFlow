@@ -62,7 +62,7 @@ npm run test:rules    # firestore.rules + storage.rules against the emulators
   straight into Node's built-in test runner. Only modules that don't touch the
   DOM or Firebase at load time can be imported this way — currently `utils.js`,
   `state.js`, `constants.js`, `quickadd.js`, `search.js`, `calendar-dates.js`,
-  `duration.js`, `subtasks.js` and `recurrence.js`. Pull new logic into one of those (or a new module like
+  `duration.js`, `subtasks.js`, `recurrence.js` and `planner.js`. Pull new logic into one of those (or a new module like
   them) when you want it tested. The script pins `TZ=America/Los_Angeles` so
   date tests mean the same thing on every machine, DST changes included.
 - **Rules tests** (`tests/rules/`) start the Firestore and Storage emulators
@@ -112,6 +112,7 @@ StudyFlow/
 │   │   ├── palette.js          # Ctrl/⌘+K search + quick add (uses search.js, quickadd.js)
 │   │   ├── shortcuts.js        # Single-key shortcuts: / n e x b w m ?
 │   │   ├── calendar.js         # Week/Month views + drag-to-reschedule (date math in calendar-dates.js)
+│   │   ├── today.js            # Today view: the day's plan (ordering in planner.js)
 │   │   ├── …                   # selection, history, settings, folders, etc. — one per feature
 │   │   └── config.js           # Firebase web config (public by design)
 │   ├── css/style.css
@@ -136,7 +137,7 @@ users/{uid}/tabs/{tabId}          # "spaces" in the UI
 users/{uid}/classes/{classId}     # "groups" in the UI
 users/{uid}/folders/{folderId}    # "folders" — mini-groups inside a group
 users/{uid}/homework/{hwId}       # "assignments" in the UI
-userPrefs/{uid}                   # notifyBefore, shared across devices
+userPrefs/{uid}                   # notifyBefore, dailyBudgetMin, shared across devices
 pushSubscriptions/{subId}         # { uid, endpoint, keys, notifyBefore }
 ```
 

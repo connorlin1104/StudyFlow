@@ -8,6 +8,7 @@ import { renderSummary } from './summary.js';
 import { initAccentSwatches, initColorSwatches } from './settings.js';
 import { registerServiceWorker } from './notifications.js';
 import { wireEvents } from './events.js';
+import { currentView } from './calendar.js';
 
 /* =============================================================================
    INIT
@@ -49,12 +50,17 @@ async function init() {
     renderSchedule();
     renderSummary();
 
-    // Sync notifyBefore from Firestore so all devices share one preference
+    // Sync notifyBefore and the daily study time from Firestore so all devices
+    // share them. localStorage is only a cache, so the first paint isn't blank.
     api.notifications.getPrefs().then(r => {
       if (r?.notifyBefore != null && r.notifyBefore !== prefs.get('notifyBefore', 60)) {
         prefs.set('notifyBefore', r.notifyBefore);
         const el = document.getElementById('pref-notify-before');
         if (el) el.value = String(r.notifyBefore);
+      }
+      if (r?.dailyBudgetMin > 0 && r.dailyBudgetMin !== prefs.get('dailyBudgetMin')) {
+        prefs.set('dailyBudgetMin', r.dailyBudgetMin);
+        if (currentView() === 'today') renderSchedule();
       }
     }).catch(() => {});
 

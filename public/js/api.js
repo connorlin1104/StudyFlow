@@ -318,11 +318,14 @@ const api = {
   notifications: {
     async getPrefs() {
       const uid = requireUid();
-      const doc = await db.collection('userPrefs').doc(uid).get();
-      if (doc.exists && doc.data().notifyBefore != null) return { notifyBefore: doc.data().notifyBefore };
+      const doc  = await db.collection('userPrefs').doc(uid).get();
+      const data = doc.exists ? doc.data() : {};
+      // The Today view's daily study time rides along in the same document.
+      const dailyBudgetMin = data.dailyBudgetMin ?? null;
+      if (data.notifyBefore != null) return { notifyBefore: data.notifyBefore, dailyBudgetMin };
       // Migration fallback: read from the first subscription
       const snap = await subsFor(uid).limit(1).get();
-      return { notifyBefore: snap.empty ? 60 : (snap.docs[0].data().notifyBefore ?? 60) };
+      return { notifyBefore: snap.empty ? 60 : (snap.docs[0].data().notifyBefore ?? 60), dailyBudgetMin };
     },
     async setPrefs(notifyBefore) {
       if (notifyBefore == null) throw new Error('notifyBefore required');
@@ -330,6 +333,11 @@ const api = {
       await db.collection('userPrefs').doc(uid).set({ notifyBefore }, { merge: true });
       const snap = await subsFor(uid).get();
       await Promise.all(snap.docs.map(d => d.ref.update({ notifyBefore })));
+      return { ok: true };
+    },
+    async setDailyBudget(minutes) {
+      const uid = requireUid();
+      await db.collection('userPrefs').doc(uid).set({ dailyBudgetMin: minutes }, { merge: true });
       return { ok: true };
     },
     async subscribe(subscription, notifyBefore) {
