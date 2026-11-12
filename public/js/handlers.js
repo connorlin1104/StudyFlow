@@ -11,6 +11,7 @@ import { renderSummary } from './summary.js';
 import { closeGroupForm, closeSettings, populateSettingsTabSelect, renderSettingsClassList, renderSettingsTabsList, tabItemLabel } from './settings.js';
 import { closeHwModal } from './hw-modal.js';
 import { deadlineMsFor } from './calendar-dates.js';
+import { parseDuration } from './duration.js';
 
 /* =============================================================================
    EVENT HANDLERS
@@ -27,7 +28,25 @@ async function handleAddHomework(e) {
   const minuteVal = document.getElementById('hw-minute').value;
   const ampmVal  = document.getElementById('hw-ampm').value;
   let   deadline = document.getElementById('hw-deadline').value;
-  if (!classId || !description) return;
+  if (!classId || !description) {
+    // The form is novalidate, so this is the only check — and returning with
+    // the button still disabled used to leave it dead until a reload.
+    toast(description ? 'Pick a group first.' : 'Add a description first.', 'warning');
+    document.getElementById(description ? 'hw-class' : 'hw-desc').focus();
+    submitBtn.disabled = false;
+    return;
+  }
+
+  // A typed estimate that doesn't read as a duration stops the save rather
+  // than being dropped without a word.
+  const estimateRaw = document.getElementById('hw-estimate').value.trim();
+  const estimateMin = estimateRaw ? parseDuration(estimateRaw) : null;
+  if (estimateRaw && !estimateMin) {
+    toast('Estimate should look like 45m, 1h or 1h 30m.', 'warning');
+    document.getElementById('hw-estimate').focus();
+    submitBtn.disabled = false;
+    return;
+  }
 
   const pendingUploads = formAttachments.filter(a => a.uploading && a._promise);
   if (pendingUploads.length) {
@@ -87,6 +106,7 @@ async function handleAddHomework(e) {
     deadlineTime: deadlineTime || null,
     deadlineMs,
     priority:     priorityVal,
+    estimateMin,
   } : {
     classId, description,
     ...(folderId && state.folders.some(f => f.id === folderId && f.classId === classId) && { folderId }),
@@ -97,6 +117,7 @@ async function handleAddHomework(e) {
     ...(deadlineMs  != null && { deadlineMs }),
     ...(remindBefore != null && { remindBefore }),
     ...(priorityVal       && { priority: priorityVal }),
+    ...(estimateMin       && { estimateMin }),
   };
 
   try {

@@ -1,5 +1,6 @@
 import { state } from './state.js';
 import { esc, toast } from './utils.js';
+import { formatDuration } from './duration.js';
 import { renderFormAttachments, setFormAttachments } from './attachments.js';
 
 /* =============================================================================
@@ -55,6 +56,7 @@ function openHwEditModal(hwId) {
   document.getElementById('hw-desc').value                = hw.description || '';
   document.getElementById('hw-notes').value               = hw.notes       || '';
   setPriorityInput(hw.priority);
+  document.getElementById('hw-estimate').value = formatDuration(hw.estimateMin);
   document.getElementById('hw-deadline').value = hw.deadline || '';
   // Restore time picker
   if (hw.deadlineTime) {
@@ -89,11 +91,12 @@ function openHwEditModal(hwId) {
 /* A new-assignment form with some fields already filled — from quick add in
    the palette, or from clicking a day on the calendar. Still just a form: the
    user reviews it and nothing is saved until they submit. */
-function openHwModalPrefilled({ description = '', classId = null, folderId = null, deadline = null, deadlineTime = null, priority = null } = {}) {
+function openHwModalPrefilled({ description = '', classId = null, folderId = null, deadline = null, deadlineTime = null, priority = null, estimateMin = null } = {}) {
   openHwModal(classId, folderId);
   if (!document.getElementById('hw-modal').classList.contains('modal--open')) return; // no groups yet
   document.getElementById('hw-desc').value = description;
   setPriorityInput(priority);
+  document.getElementById('hw-estimate').value = formatDuration(estimateMin);
   if (deadline) {
     document.getElementById('hw-deadline').value = deadline;
     // Setting .value doesn't fire 'change', which is what reveals the reminder.

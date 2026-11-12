@@ -237,12 +237,22 @@
             <option value="-1">No reminder</option>
           </select>
         </div>
-        <div class="form-group">
-          <span class="form-label" id="hw-priority-label">Priority</span>
-          <div class="segmented" role="radiogroup" aria-labelledby="hw-priority-label">
-            <label class="segmented-opt"><input type="radio" name="hw-priority" value="low"><span>Low</span></label>
-            <label class="segmented-opt"><input type="radio" name="hw-priority" value="normal" checked><span>Normal</span></label>
-            <label class="segmented-opt segmented-opt--high"><input type="radio" name="hw-priority" value="high"><span>! High</span></label>
+        <div class="form-row form-row--keep">
+          <div class="form-group form-group--fit">
+            <span class="form-label" id="hw-priority-label">Priority</span>
+            <div class="segmented" role="radiogroup" aria-labelledby="hw-priority-label">
+              <label class="segmented-opt"><input type="radio" name="hw-priority" value="low"><span>Low</span></label>
+              <label class="segmented-opt"><input type="radio" name="hw-priority" value="normal" checked><span>Normal</span></label>
+              <label class="segmented-opt segmented-opt--high"><input type="radio" name="hw-priority" value="high"><span>! High</span></label>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="hw-estimate">Estimate <span class="optional">(optional)</span></label>
+            <input type="text" id="hw-estimate" list="hw-estimate-list" placeholder="e.g. 45m" autocomplete="off">
+            <datalist id="hw-estimate-list">
+              <option value="15m"></option><option value="30m"></option><option value="45m"></option>
+              <option value="1h"></option><option value="1h 30m"></option><option value="2h"></option><option value="3h"></option>
+            </datalist>
           </div>
         </div>
         <div class="form-actions">
@@ -643,6 +653,7 @@
           <h3 class="release-version">v1.15 &mdash; November 2026</h3>
           <ul>
             <li><strong>Priority</strong> &mdash; mark an assignment <strong>High</strong> or <strong>Low</strong> in its form, or right-click one (or a whole selection) and pick <strong>Priority</strong>. High-priority work gets a red <strong>!</strong> and goes first among things due at the same time. In quick add, type <em>!high</em> or <em>!low</em>.</li>
+            <li><strong>Time estimates</strong> &mdash; say how long something will take (<em>45m</em>, <em>1h 30m</em>) in the form, or add <em>~45m</em> in quick add. The board shows it on the card, and the calendar adds up each day so you can see which ones are heavy.</li>
             <li>Fixed: clearing an assignment&rsquo;s due date, notes or last attachment in the edit form now actually removes it.</li>
           </ul>
         </div>

@@ -61,11 +61,10 @@ npm run test:rules    # firestore.rules + storage.rules against the emulators
 - **Unit tests** (`tests/unit/`) import the browser modules in `public/js/`
   straight into Node's built-in test runner. Only modules that don't touch the
   DOM or Firebase at load time can be imported this way — currently `utils.js`,
-  `state.js`, `constants.js`, `quickadd.js`, `search.js` and
-  `calendar-dates.js`. Pull new logic into one of those (or a new module like
-  them) when you want it tested. The script pins
-  `TZ=America/Los_Angeles` so date tests mean the same thing on every machine,
-  DST changes included.
+  `state.js`, `constants.js`, `quickadd.js`, `search.js`, `calendar-dates.js`
+  and `duration.js`. Pull new logic into one of those (or a new module like
+  them) when you want it tested. The script pins `TZ=America/Los_Angeles` so
+  date tests mean the same thing on every machine, DST changes included.
 - **Rules tests** (`tests/rules/`) start the Firestore and Storage emulators
   under the throwaway project `demo-studyflow` — nothing touches the real
   project. The emulators need **Java 11+** (`brew install openjdk@21` on a Mac).
@@ -145,6 +144,8 @@ Every collection carries an integer `order` field driving drag-to-reorder.
 An assignment's `priority` is `'high'`, `'low'`, or absent for normal, so
 documents saved before priorities existed need no migration; it only breaks
 ties after manual order and due time (`priorityRank()` in `state.js`).
+`estimateMin` is a time estimate in whole minutes, also absent when unset;
+`duration.js` parses what's typed ("1h 30m") and formats it back.
 Attachments are stored at `users/{uid}/hw-attachments/...` in Cloud Storage and
 referenced from the homework document.
 

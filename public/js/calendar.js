@@ -7,6 +7,7 @@ import { esc, parseDeadline, toast } from './utils.js';
 import { renderSchedule, renderTabBar } from './render.js';
 import { renderSummary } from './summary.js';
 import { openHwEditModal, openHwModalPrefilled } from './hw-modal.js';
+import { formatDuration, totalEstimate } from './duration.js';
 import { bucket, deadlineMsFor, monthGrid, parseYmd, rangeLabel, shiftAnchor, viewRange, weekDays, ymd } from './calendar-dates.js';
 
 /* =============================================================================
@@ -92,17 +93,21 @@ function dayHtml(date, items, { month, today, classById, inMonth }) {
   const LIMIT = 3;
   const shown = month ? items.slice(0, LIMIT) : items;
   const more  = items.length - shown.length;
-  const list  = shown.map(hw => itemHtml(hw, classById.get(hw.classId), { sub: month ? '' : classById.get(hw.classId).name, today })).join('');
+  const sub   = hw => [classById.get(hw.classId).name, formatDuration(hw.estimateMin)].filter(Boolean).join(' · ');
+  const list  = shown.map(hw => itemHtml(hw, classById.get(hw.classId), { sub: month ? '' : sub(hw), today })).join('');
+  // How much work the day holds, from the estimates that have been given.
+  const total = formatDuration(totalEstimate(items));
+  const head  = month ? total : items.length ? [items.length, total].filter(Boolean).join(' · ') : '';
   // Phones get dots in the month grid; there's no room for titles.
   const dots = month && items.length
     ? `<span class="cal-dots" aria-hidden="true">${items.slice(0, 4).map(hw =>
         `<span style="--color:${esc(classById.get(hw.classId).color || '#94a3b8')}"></span>`).join('')}</span>`
     : '';
-  return `<div class="${classes.join(' ')}" data-date="${key}" aria-label="${esc(full)}, ${items.length} due">
+  return `<div class="${classes.join(' ')}" data-date="${key}" aria-label="${esc(full)}, ${items.length} due${total ? `, about ${total} of work` : ''}">
     <div class="cal-day-head">
       ${month ? '' : `<span class="cal-dow">${dow}</span>`}
       <span class="cal-dnum">${date.getDate()}</span>
-      ${!month && items.length ? `<span class="cal-day-count">${items.length}</span>` : ''}
+      ${head ? `<span class="cal-day-count"${total ? ` title="${items.length} due, about ${total} of work"` : ''}>${head}</span>` : ''}
     </div>
     <div class="cal-day-items">${list}${more > 0
       ? `<button class="cal-more" data-cal-more="${key}">+${more} more</button>` : ''}</div>
@@ -117,7 +122,8 @@ function extraHtml(title, items, classById, today, cssMod) {
     <div class="cal-extra-items">${items.map(hw => {
       const cls = classById.get(hw.classId);
       const due = hw.deadline ? parseDeadline(hw.deadline, hw.deadlineTime) : null;
-      return itemHtml(hw, cls, { sub: due ? `${cls.name} · ${due.label}` : cls.name, showTime: false, today });
+      const sub = [cls.name, due?.label, formatDuration(hw.estimateMin)].filter(Boolean).join(' · ');
+      return itemHtml(hw, cls, { sub, showTime: false, today });
     }).join('')}</div>
   </section>`;
 }

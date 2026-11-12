@@ -2697,3 +2697,22 @@ html.pwa-mode body {
 .hw-item--low .hw-desc,
 .cal-item--low .cal-item-desc { color: var(--text-muted); }
 .cal-item .prio-flag { margin-right: 0; flex-shrink: 0; }
+.form-row .form-group--fit { flex: 0 0 auto; }
+/* Stays side by side on phones too; wraps only if it truly can't fit. */
+@media (max-width: 600px) {
+  .form-row--keep { flex-direction: row; row-gap: 0; }
+}
+
+/* =============================================================================
+   TIME ESTIMATES  (hw.estimateMin, minutes; formatted by duration.js)
+   ============================================================================= */
+.est-chip {
+  font-size: .72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.est-chip::before { content: '⏱ '; font-weight: 400; }
+@media (max-width: 600px) {
+  .cal-grid--month .cal-day-count { display: none; }
+}

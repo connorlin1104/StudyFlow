@@ -2,6 +2,7 @@ import { folderChildren, groupChildren, state } from './state.js';
 import { applySelectionStyles, clearSelection } from './selection.js';
 import { prefs } from './prefs.js';
 import { esc, parseDeadline } from './utils.js';
+import { formatDuration } from './duration.js';
 import { addClassDragBehavior, attachDrag } from './drag.js';
 import { fileIcon, isImageType } from './attachments.js';
 import { openGroupForm, openSettings, populateSettingsTabSelect, resetClassForm } from './settings.js';
@@ -216,6 +217,7 @@ function buildHwItem(hw, draggable = false) {
       <button class="btn-icon-sm hw-edit-btn"   data-hw-id="${hw.id}" aria-label="Edit">✎</button>
       <button class="btn-icon-sm hw-delete"      data-hw-id="${hw.id}" aria-label="Delete">&#x2715;</button>
       ${hasAttachments ? `<span class="hw-attach-badge" title="${hw.attachments.length} attachment${hw.attachments.length !== 1 ? 's' : ''}"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>${hw.attachments.length > 1 ? `<span>${hw.attachments.length}</span>` : ''}</span>` : ''}
+      ${hw.estimateMin ? `<span class="est-chip" title="Estimated time">${formatDuration(hw.estimateMin)}</span>` : ''}
       ${dlHtml}
     </div>
   `;

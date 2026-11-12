@@ -6,6 +6,7 @@ import { isCalendarView, revealInCalendar } from './calendar.js';
 import { openHwModalPrefilled } from './hw-modal.js';
 import { search } from './search.js';
 import { parseQuickAdd } from './quickadd.js';
+import { formatDuration } from './duration.js';
 
 /* =============================================================================
    COMMAND PALETTE  (Ctrl/⌘+K or /)
@@ -94,7 +95,8 @@ function rowHtml(row, i) {
     icon  = '<span class="palette-icon palette-icon--create">+</span>';
     title = `Create “${esc(p.description)}”`;
     const prio = p.priority === 'high' ? '<span class="prio-flag">!</span>High priority' : p.priority === 'low' ? 'Low priority' : '';
-    meta  = [cls && `${groupDot(cls)}${esc(cls.name)}`, due && esc(due.label), prio].filter(Boolean).join(' · ');
+    const est  = p.estimateMin ? `⏱ ${formatDuration(p.estimateMin)}` : '';
+    meta  = [cls && `${groupDot(cls)}${esc(cls.name)}`, due && esc(due.label), prio, est].filter(Boolean).join(' · ');
   } else if (row.type === 'hw') {
     const hw = state.homework.find(h => h.id === row.id);
     const cls = clsOf(hw.classId);
