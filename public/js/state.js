@@ -33,6 +33,14 @@ function deadlineValue(hw) {
   return new Date(hw.deadline + (hw.deadlineTime ? `T${hw.deadlineTime}` : 'T23:59')).getTime();
 }
 
+/* Priority is stored only when it isn't normal — 'high' or 'low' — so every
+   assignment saved before priorities existed reads as normal. It only breaks
+   ties: manual order and due time still decide first. */
+const PRIORITIES = ['high', 'low'];
+function priorityRank(hw) {
+  return hw?.priority === 'high' ? 0 : hw?.priority === 'low' ? 2 : 1;
+}
+
 function groupChildren(classId) {
   const items = [
     ...state.folders
@@ -62,6 +70,8 @@ function sortChildren(items) {
       if (a.order == null && b.order != null) return 1;
     }
     if (a.due !== b.due) return a.due - b.due;
+    const pa = a.type === 'hw' ? priorityRank(a.ref) : 1, pb = b.type === 'hw' ? priorityRank(b.ref) : 1;
+    if (pa !== pb) return pa - pb;
     // Ties have to break the same way every render, or items jitter between them
     return a.type === b.type ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : (a.type === 'fd' ? -1 : 1);
   });
@@ -83,4 +93,4 @@ function defaultClassId() {
   return (state.classes.find(c => c.tabId === state.activeTabId) || state.classes[0])?.id ?? null;
 }
 
-export { containerItems, deadlineValue, defaultClassId, folderChildren, groupChildren, keyKind, resortClasses, selKey, splitKey, state };
+export { PRIORITIES, containerItems, deadlineValue, defaultClassId, folderChildren, groupChildren, keyKind, priorityRank, resortClasses, selKey, splitKey, state };

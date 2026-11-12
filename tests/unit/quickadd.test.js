@@ -157,6 +157,37 @@ describe('cleanup', () => {
 
   test('empty input', () => {
     const r = parse('');
-    assert.deepEqual(r, { description: '', classId: null, deadline: null, deadlineTime: null });
+    assert.deepEqual(r, { description: '', classId: null, deadline: null, deadlineTime: null, priority: null });
+  });
+});
+
+describe('priority', () => {
+  const cases = [
+    ['essay !high',        'high'],
+    ['essay !h fri',       'high'],
+    ['!! essay',           'high'],
+    ['essay !HIGH',        'high'],
+    ['essay !low',         'low'],
+    ['essay !l',           'low'],
+    ['essay',              null],
+  ];
+  for (const [input, want] of cases) {
+    test(`"${input}" → ${want}`, () => {
+      const r = parse(input);
+      assert.equal(r.priority, want);
+      assert.equal(r.description, 'essay');
+    });
+  }
+
+  test('works alongside a group, date and time', () => {
+    const r = parse('bio lab report fri 3pm !high');
+    assert.deepEqual(r, { description: 'lab report', classId: 'bio', deadline: '2026-11-13', deadlineTime: '15:00', priority: 'high' });
+  });
+
+  test('a ! inside a word or a run of !!! is part of the description', () => {
+    assert.equal(parse('wow!').priority, null);
+    assert.equal(parse('wow!').description, 'wow!');
+    assert.equal(parse('finish it !!!').priority, null);
+    assert.equal(parse('read !hamlet').priority, null);
   });
 });

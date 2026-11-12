@@ -94,6 +94,15 @@ describe('bucket', () => {
     assert.deepEqual(r.days.get('2026-11-12').map(h => h.id), ['b', 'c', 'a']);
   });
 
+  test('at the same time, high priority comes first', () => {
+    const r2 = bucket([
+      { id: 'n', description: 'A', deadline: '2026-11-12' },
+      { id: 'h', description: 'B', deadline: '2026-11-12', priority: 'high' },
+      { id: 't', description: 'C', deadline: '2026-11-12', deadlineTime: '09:00', priority: 'low' },
+    ], { from: '2026-11-08', to: '2026-11-14', today: '2026-11-11' });
+    assert.deepEqual(r2.days.get('2026-11-12').map(h => h.id), ['t', 'h', 'n']);
+  });
+
   test('completed work is left out', () => {
     assert.ok(![...r.days.values()].flat().some(h => h.id === 'd'));
   });

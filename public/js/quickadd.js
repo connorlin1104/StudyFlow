@@ -1,8 +1,8 @@
 /* =============================================================================
    QUICK-ADD PARSER
 
-   Turns one line like "Bio lab report fri 3pm" into the fields of the
-   assignment form: { description, classId, deadline, deadlineTime }.
+   Turns one line like "Bio lab report fri 3pm !high" into the fields of the
+   assignment form: { description, classId, deadline, deadlineTime, priority }.
 
    Pure on purpose — no DOM, no Firebase, no shared state — so it runs under
    Node's test runner (tests/unit/quickadd.test.js). The caller passes the
@@ -147,6 +147,21 @@ function cutWords(text, a, b) {
   return start == null || end == null ? text : text.slice(0, start) + ' ' + text.slice(end);
 }
 
+// "!high", "!h" or "!!" for high priority, "!low" or "!l" for low. Only as a
+// word of its own, so "wow!" or "!!!" in a description are left alone.
+const PRIORITY_RE = /(^|\s)(!!|!(?:high|hi|h|low|lo|l))(?=\s|$)/i;
+
+function takePriority(text) {
+  const m = text.match(PRIORITY_RE);
+  if (!m) return { priority: null, text };
+  const word = m[2].toLowerCase();
+  const start = m.index + m[1].length;
+  return {
+    priority: word === '!!' || word.startsWith('!h') ? 'high' : 'low',
+    text: text.slice(0, start) + ' ' + text.slice(start + m[2].length),
+  };
+}
+
 function tidy(s) {
   return s.replace(/\s+/g, ' ')
           .replace(/^[\s,;:\-–—]+|[\s,;:\-–—]+$/g, '')
@@ -161,11 +176,13 @@ function tidy(s) {
  * @param {Array<{id,name,tabId}>} opts.groups
  * @param {string} [opts.activeTabId]
  * @param {Date}   [opts.now]
- * @returns {{ description: string, classId: string|null, deadline: string|null, deadlineTime: string|null }}
+ * @returns {{ description: string, classId: string|null, deadline: string|null, deadlineTime: string|null, priority: 'high'|'low'|null }}
  */
 function parseQuickAdd(input, { groups = [], activeTabId = null, now = new Date() } = {}) {
   const today = startOfDay(now);
   let text = ` ${input || ''} `;
+
+  const prio = takePriority(text);            text = prio.text;
 
   const time = take(text, TIME_RULES, today);  text = time.text;
   const date = take(text, DATE_RULES, today);  text = date.text;
@@ -187,6 +204,7 @@ function parseQuickAdd(input, { groups = [], activeTabId = null, now = new Date(
     classId: found ? found.group.id : null,
     deadline,
     deadlineTime,
+    priority: prio.priority,
   };
 }
 

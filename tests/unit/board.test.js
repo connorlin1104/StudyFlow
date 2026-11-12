@@ -2,7 +2,7 @@
 // logic behind drag-to-reorder: get it wrong and items jump around on reload.
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { state, groupChildren, folderChildren, resortClasses } from '../../public/js/state.js';
+import { state, groupChildren, folderChildren, priorityRank, resortClasses } from '../../public/js/state.js';
 
 // state is a shared module-level object; reset it in place between tests.
 function setState(s) {
@@ -64,6 +64,45 @@ describe('groupChildren', () => {
     // Undated assignments tie with folders on deadline (both Infinity).
     assert.deepEqual(ids(groupChildren('g')), ['fd:f', 'hw:a', 'hw:b']);
     assert.deepEqual(ids(groupChildren('g')), ['fd:f', 'hw:a', 'hw:b']);
+  });
+});
+
+describe('priority', () => {
+  test('high priority goes first among assignments due at the same time, low last', () => {
+    setState({ homework: [
+      { id: 'a', classId: 'g', deadline: '2026-11-12', priority: 'low' },
+      { id: 'b', classId: 'g', deadline: '2026-11-12' },
+      { id: 'c', classId: 'g', deadline: '2026-11-12', priority: 'high' },
+    ] });
+    assert.deepEqual(ids(groupChildren('g')), ['hw:c', 'hw:b', 'hw:a']);
+  });
+
+  test('it never beats an earlier due date', () => {
+    setState({ homework: [
+      { id: 'later', classId: 'g', deadline: '2026-11-20', priority: 'high' },
+      { id: 'sooner', classId: 'g', deadline: '2026-11-12', priority: 'low' },
+    ] });
+    assert.deepEqual(ids(groupChildren('g')), ['hw:sooner', 'hw:later']);
+  });
+
+  test('it sorts undated work too', () => {
+    setState({ homework: [
+      { id: 'a', classId: 'g' },
+      { id: 'b', classId: 'g', priority: 'high' },
+    ] });
+    assert.deepEqual(ids(groupChildren('g')), ['hw:b', 'hw:a']);
+  });
+
+  test('manual order still wins', () => {
+    setState({ homework: [
+      { id: 'a', classId: 'g', order: 0 },
+      { id: 'b', classId: 'g', order: 1, priority: 'high' },
+    ] });
+    assert.deepEqual(ids(groupChildren('g')), ['hw:a', 'hw:b']);
+  });
+
+  test('priorityRank: missing or unknown reads as normal', () => {
+    assert.deepEqual([{ priority: 'high' }, {}, { priority: 'low' }, { priority: 'urgent' }, null].map(priorityRank), [0, 1, 2, 1, 1]);
   });
 });
 

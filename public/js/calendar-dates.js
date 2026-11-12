@@ -10,6 +10,8 @@
    change are 23 and 25 hours long.
    ============================================================================= */
 
+import { priorityRank } from './state.js';
+
 const pad = n => String(n).padStart(2, '0');
 
 /** Date → 'YYYY-MM-DD' in local time. */
@@ -72,8 +74,9 @@ function rangeLabel(view, anchor) {
 }
 
 // Within a day: timed work in time order, then "sometime that day" — which
-// means 23:59, same as deadlineValue() in state.js.
+// means 23:59, same as deadlineValue() in state.js. High priority breaks ties.
 const byTime = (a, b) => (a.deadlineTime || '23:59').localeCompare(b.deadlineTime || '23:59')
+                      || priorityRank(a) - priorityRank(b)
                       || (a.description || '').localeCompare(b.description || '');
 
 /**
