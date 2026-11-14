@@ -4,20 +4,20 @@
    Pure (no DOM, no Firebase), like duration.js, so tests/unit/planner.test.js
    runs it under Node. today.js draws what this returns.
 
-   The rules, in order:
-     1. Must-dos come first and are always in, budget or not: overdue work
-        (oldest first), then what's due today, then what's due tomorrow —
-        homework due tomorrow is tonight's homework.
-     2. Then the rest, soonest due first, undated last, filling whatever's
-        left of the daily budget. The first thing that doesn't fit gets the
-        leftover time as a head start ("45m of 3h") if there's at least
-        MIN_SLICE of it, and the plan stops there — it doesn't skip ahead to
-        something smaller and due later.
+   The rules:
+     1. Today's list is what's overdue (oldest first) and what's due today.
+        All of it, budget or not; nothing is pulled in from later days to
+        fill the time.
+     2. When that list is empty, a few suggestions come instead: the next
+        things due (tomorrow first, undated last), clearly marked as getting
+        ahead rather than due.
      3. Ties go to priority, high before low (priorityRank, like everywhere
         else).
    Time is the estimate minus the share of steps already ticked. Assignments
    without an estimate count as GUESS_MIN and are marked as a guess, so the
-   total is honest about how much of it is made up.
+   total is honest about how much of it is made up. The daily budget only
+   decides when to warn: today's list running past it, or a coming day with
+   more due than fits.
    ============================================================================= */
 
 import { priorityRank } from './state.js';
@@ -25,7 +25,7 @@ import { subtaskProgress } from './subtasks.js';
 
 const DEFAULT_BUDGET = 120;   // minutes a day, until someone picks their own
 const GUESS_MIN      = 30;
-const MIN_SLICE      = 15;
+const SUGGESTIONS    = 3;
 
 const pad = n => String(n).padStart(2, '0');
 const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -54,7 +54,7 @@ function whenDue(hw, now) {
 }
 
 const RANK = { overdue: 0, today: 1, tomorrow: 2, later: 3, someday: 4 };
-const MUST = new Set(['overdue', 'today', 'tomorrow']);
+const DUE = new Set(['overdue', 'today']);
 
 function compare(a, b) {
   return (RANK[a.reason] - RANK[b.reason])
@@ -71,12 +71,12 @@ function compare(a, b) {
  * @param {Date}   [opts.now]
  * @param {number} [opts.budgetMin]   minutes available today
  * @returns {{
- *   items: Array<{ hw, reason, minutes, guess: boolean, partial: boolean, must: boolean }>,
+ *   items: Array<{ hw, reason, minutes, guess: boolean }>,   // overdue + due today
+ *   suggestions: Array<{ hw, reason, minutes, guess: boolean }>,  // only when items is empty
  *   plannedMin: number,   // what the items add up to
  *   budgetMin: number,
- *   mustMin: number,      // what the must-dos alone add up to
- *   overBy: number,       // minutes the must-dos run past the budget, else 0
- *   leftOut: number,      // assignments not in today's plan
+ *   overBy: number,       // minutes the items run past the budget, else 0
+ *   upcoming: number,     // assignments due later (not in items or suggestions)
  * }}
  */
 function planDay(homework, { now = new Date(), budgetMin = DEFAULT_BUDGET } = {}) {
@@ -84,48 +84,34 @@ function planDay(homework, { now = new Date(), budgetMin = DEFAULT_BUDGET } = {}
     .filter(hw => !hw.completed)
     .map(hw => {
       const left = remainingMin(hw);
-      const reason = whenDue(hw, now);
-      return { hw, reason, minutes: left ?? GUESS_MIN, guess: left == null, partial: false, must: MUST.has(reason) };
+      return { hw, reason: whenDue(hw, now), minutes: left ?? GUESS_MIN, guess: left == null };
     })
     .sort(compare);
 
-  const items = [];
-  let used = 0;
-  for (const c of candidates) {
-    if (c.must || used + c.minutes <= budgetMin) {
-      items.push(c);
-      used += c.minutes;
-      continue;
-    }
-    const room = budgetMin - used;
-    if (room >= MIN_SLICE) {
-      items.push({ ...c, minutes: room, partial: true, totalMin: c.minutes });
-      used += room;
-    }
-    break;
-  }
-
-  const mustMin = items.filter(i => i.must).reduce((s, i) => s + i.minutes, 0);
+  const items = candidates.filter(c => DUE.has(c.reason));
+  const rest  = candidates.filter(c => !DUE.has(c.reason));
+  const suggestions = items.length ? [] : rest.slice(0, SUGGESTIONS);
+  const plannedMin = items.reduce((s, i) => s + i.minutes, 0);
   return {
     items,
-    plannedMin: used,
+    suggestions,
+    plannedMin,
     budgetMin,
-    mustMin,
-    overBy: Math.max(0, mustMin - budgetMin),
-    leftOut: candidates.length - items.length,
+    overBy: Math.max(0, plannedMin - budgetMin),
+    upcoming: rest.length - suggestions.length,
   };
 }
 
 /**
  * Days in the coming week with more work due than fits in one day's budget —
  * the "Thursday: 4h 30m" warning. Counts only real estimates (a pile of
- * guesses isn't worth a warning), and starts the day after tomorrow, since
- * today's and tomorrow's work is already in today's plan.
+ * guesses isn't worth a warning), and starts tomorrow, since today's work is
+ * already in today's list.
  * @returns {Array<{ date: string, totalMin: number, count: number }>}
  */
 function heavyDays(homework, { now = new Date(), budgetMin = DEFAULT_BUDGET, days = 7 } = {}) {
   const out = [];
-  for (let i = 2; i <= days; i++) {
+  for (let i = 1; i <= days; i++) {
     const date = ymd(addDays(now, i));
     const due = homework.filter(hw => !hw.completed && hw.deadline === date);
     const totalMin = due.reduce((s, hw) => s + (remainingMin(hw) ?? 0), 0);
@@ -134,4 +120,4 @@ function heavyDays(homework, { now = new Date(), budgetMin = DEFAULT_BUDGET, day
   return out;
 }
 
-export { DEFAULT_BUDGET, GUESS_MIN, MIN_SLICE, heavyDays, planDay, remainingMin, whenDue };
+export { DEFAULT_BUDGET, GUESS_MIN, SUGGESTIONS, heavyDays, planDay, remainingMin, whenDue };

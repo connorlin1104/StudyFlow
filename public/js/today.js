@@ -41,7 +41,6 @@ function shortTime(t) {
 }
 
 const REASON = {
-  overdue:  'Overdue',
   today:    'Due today',
   tomorrow: 'Due tomorrow',
 };
@@ -56,13 +55,11 @@ function dueLabel(item) {
 }
 
 function itemHtml(item, cls) {
-  const { hw, minutes, guess, partial, totalMin, reason } = item;
+  const { hw, minutes, guess, reason } = item;
   const steps = subtaskProgress(hw);
   const repeats = describeRepeat(hw.repeat);
   const sub = [esc(cls.name), esc(dueLabel(item)), steps && `${steps.done}/${steps.total} steps`].filter(Boolean).join(' · ');
-  const time = partial
-    ? `<span class="today-min today-min--partial" title="Make a start: ${formatDuration(minutes)} today, of about ${formatDuration(totalMin)}">${formatDuration(minutes)} <small>of ${formatDuration(totalMin)}</small></span>`
-    : guess
+  const time = guess
       ? `<span class="today-min today-min--guess" title="No estimate, so this counts as ${formatDuration(GUESS_MIN)}. Add one in the form.">~${formatDuration(minutes)}</span>`
       : `<span class="today-min" title="Time left, going by the estimate">${formatDuration(minutes)}</span>`;
   return `<li class="today-item today-item--${reason}${hw.priority === 'high' ? ' today-item--high' : ''}" data-hw-id="${esc(hw.id)}" style="--color:${esc(cls.color || '#94a3b8')}">
@@ -94,29 +91,39 @@ function renderToday(root) {
 
   const guesses = plan.items.filter(i => i.guess).length;
   const summary = plan.items.length
-    ? `<strong>${formatDuration(plan.plannedMin)}</strong> planned of ${formatDuration(b)} · ${plan.items.length} assignment${plan.items.length !== 1 ? 's' : ''}${
+    ? `<strong>${formatDuration(plan.plannedMin)}</strong> of work today, out of ${formatDuration(b)} · ${plan.items.length} assignment${plan.items.length !== 1 ? 's' : ''}${
         guesses ? ` · <span title="Assignments without an estimate count as ${formatDuration(GUESS_MIN)} each">${guesses} guessed</span>` : ''}`
     : '';
 
   const over = plan.overBy
-    ? `<p class="today-alert today-alert--over" role="status">What&rsquo;s overdue or due by tomorrow comes to <strong>${formatDuration(plan.mustMin)}</strong>, ${formatDuration(plan.overBy)} more than your ${formatDuration(b)}. Do the top of the list first.</p>`
+    ? `<p class="today-alert today-alert--over" role="status">That&rsquo;s ${formatDuration(plan.overBy)} more than your ${formatDuration(b)} of study time. Do the top of the list first.</p>`
     : '';
 
   const heavyHtml = heavy.length
     ? `<section class="today-heavy">
         <h3 class="today-section-title">Heavy days coming up</h3>
         <ul>${heavy.map(d => `<li><button class="today-heavy-day" data-today-week="${d.date}">
-          <strong>${esc(niceDay(d.date, { weekday: 'long' }))}</strong>: ${formatDuration(d.totalMin)} due across ${d.count} assignment${d.count !== 1 ? 's' : ''}
+          <strong>${esc(d.date === ymd(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)) ? 'Tomorrow' : niceDay(d.date, { weekday: 'long' }))}</strong>: ${formatDuration(d.totalMin)} due across ${d.count} assignment${d.count !== 1 ? 's' : ''}
           </button> &mdash; more than a day&rsquo;s ${formatDuration(b)}, so start some early.</li>`).join('')}</ul>
       </section>`
     : '';
 
-  const body = plan.items.length
-    ? `<ol class="today-list">${plan.items.map(i => itemHtml(i, classById.get(i.hw.classId))).join('')}</ol>`
-    : `<div class="today-empty"><div class="today-empty-icon" aria-hidden="true">🎉</div><p>Nothing to do today. Enjoy it.</p></div>`;
+  const seeWeek = `<button class="link-btn" data-today-view="week">See the week</button>`;
+  let body;
+  if (plan.items.length) {
+    body = `<ol class="today-list">${plan.items.map(i => itemHtml(i, classById.get(i.hw.classId))).join('')}</ol>`;
+  } else if (plan.suggestions.length) {
+    body = `<div class="today-empty today-empty--compact"><p><strong>Nothing is due today.</strong></p></div>
+      <section class="today-suggest">
+        <h3 class="today-section-title">Want to get ahead? Coming up next</h3>
+        <ol class="today-list today-list--suggest">${plan.suggestions.map(i => itemHtml(i, classById.get(i.hw.classId))).join('')}</ol>
+      </section>`;
+  } else {
+    body = `<div class="today-empty"><div class="today-empty-icon" aria-hidden="true">🎉</div><p>Nothing is due today, and nothing coming up. Enjoy it.</p></div>`;
+  }
 
-  const later = plan.leftOut
-    ? `<p class="today-later">${plan.leftOut} more assignment${plan.leftOut !== 1 ? 's' : ''} can wait for another day. <button class="link-btn" data-today-view="week">See the week</button></p>`
+  const later = plan.upcoming
+    ? `<p class="today-later">${plan.upcoming} more assignment${plan.upcoming !== 1 ? 's' : ''} due later. ${seeWeek}</p>`
     : '';
 
   root.innerHTML = `<div class="today">
