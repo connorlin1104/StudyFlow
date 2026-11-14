@@ -19,7 +19,24 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="StudyFlow">
   <link rel="stylesheet" href="css/style.css">
-  <script>if (navigator.standalone) document.documentElement.classList.add('pwa-mode');</script>
+  <script>
+    if (navigator.standalone) {
+      const root = document.documentElement;
+      root.classList.add('pwa-mode');
+      // After rotating, iOS can report a viewport that's short by the status
+      // bar, leaving a strip at the bottom. The home-screen app always fills
+      // the screen, so size it from the screen instead. (iOS's screen.width
+      // and .height don't swap on rotation, hence min/max.)
+      const fit = () => {
+        const wide = innerWidth > innerHeight;
+        const h = wide ? Math.min(screen.width, screen.height) : Math.max(screen.width, screen.height);
+        root.style.setProperty('--screen-h', h + 'px');
+      };
+      fit();
+      addEventListener('resize', fit);
+      addEventListener('orientationchange', () => { fit(); setTimeout(fit, 300); });
+    }
+  </script>
 </head>
 <body>
 

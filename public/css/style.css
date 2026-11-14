@@ -2048,15 +2048,16 @@ kbd {
 }
 
 /* iOS PWA: 100dvh excludes the home indicator zone, and after rotating to
-   landscape it can stay short by the portrait status bar height, leaving a
-   strip at the bottom. Pin body to the screen edges instead of trusting dvh;
-   min-height still covers the home indicator zone. */
+   landscape the viewport can stay short by the portrait status bar height,
+   leaving a strip at the bottom. --screen-h is the real screen height, set
+   by the script in index.html; the dvh sum is only the fallback. */
 html.pwa-mode { background: var(--bg); }
 html.pwa-mode body {
   position: fixed;
-  inset: 0;
-  height: auto;
-  min-height: calc(100dvh + env(safe-area-inset-bottom, 0px));
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--screen-h, calc(100dvh + env(safe-area-inset-bottom, 0px)));
 }
 @media (max-width: 820px) {
   /* Collapsed handle stays fully visible above home indicator */
