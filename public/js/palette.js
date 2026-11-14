@@ -1,4 +1,4 @@
-import { defaultClassId, selKey, state } from './state.js';
+import { selKey, state } from './state.js';
 import { esc, parseDeadline } from './utils.js';
 import { elementForKey } from './selection.js';
 import { setActiveTab } from './render.js';
@@ -92,14 +92,14 @@ function rowHtml(row, i) {
 
   if (row.type === 'create') {
     const p = row.parsed;
-    const cls = clsOf(p.classId || defaultClassId());
+    const cls = clsOf(p.classId);
     const due = parseDeadline(p.deadline, p.deadlineTime);
     icon  = '<span class="palette-icon palette-icon--create">+</span>';
     title = `Create “${esc(p.description)}”`;
     const prio = p.priority === 'high' ? '<span class="prio-flag">!</span>High priority' : p.priority === 'low' ? 'Low priority' : '';
     const est  = p.estimateMin ? `⏱ ${formatDuration(p.estimateMin)}` : '';
     const rep  = p.repeat ? `↻ ${esc(describeRepeat(p.repeat))}` : '';
-    meta  = [cls && `${groupDot(cls)}${esc(cls.name)}`, due && esc(due.label), prio, est, rep].filter(Boolean).join(' · ');
+    meta  = [cls ? `${groupDot(cls)}${esc(cls.name)}` : '<span class="palette-nogroup" title="Type a group name to pick it here">Choose a group</span>', due && esc(due.label), prio, est, rep].filter(Boolean).join(' · ');
   } else if (row.type === 'hw') {
     const hw = state.homework.find(h => h.id === row.id);
     const cls = clsOf(hw.classId);
@@ -168,7 +168,7 @@ function choose(i) {
   const row = rows[i];
   if (!row) return;
   closePalette();
-  if (row.type === 'create') openHwModalPrefilled({ ...row.parsed, classId: row.parsed.classId || defaultClassId() });
+  if (row.type === 'create') openHwModalPrefilled(row.parsed);
   else jumpTo(row.type, row.id);
 }
 

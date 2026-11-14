@@ -500,7 +500,7 @@ async function setSubtaskDone(hwId, stepId, done) {
   try {
     await apply(done);
     const p = subtaskProgress(hw);
-    if (done && p.done === p.total) toast(`All steps done — tick "${hw.description}" when you've handed it in`, 'success');
+    if (done && p.done === p.total) toast(`All steps done for "${hw.description}"`, 'success');
     history.push({
       async undo() { await apply(!done); toast(`${done ? 'Unticked' : 'Ticked'} "${text}"`, 'info'); },
       async redo() { await apply(done);  toast(`${done ? 'Ticked' : 'Unticked'} "${text}"`, 'info'); }

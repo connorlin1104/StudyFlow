@@ -1789,7 +1789,7 @@ kbd {
   --header-bg:   #030303;
   --header-text: #ff0080;
   --text:        #f5f5f5;
-  --text-muted:  #666666;
+  --text-muted:  #9a9a9a;
   --border:      #222222;
   --primary:        #ff0080;
   --primary-hover:  #cc0066;
@@ -2368,6 +2368,7 @@ html.pwa-mode body {
   text-overflow: ellipsis;
 }
 .palette-meta .palette-dot { width: 7px; height: 7px; margin-right: 4px; vertical-align: 1px; }
+.palette-nogroup { color: var(--danger); font-weight: 600; }
 .palette-dot {
   display: inline-block;
   flex-shrink: 0;
@@ -2849,6 +2850,8 @@ html.pwa-mode body {
 .today-empty { padding: 40px 16px; text-align: center; color: var(--text-muted); border: 1px dashed var(--border); border-radius: var(--radius); }
 .today-empty-icon { font-size: 2rem; margin-bottom: 6px; }
 .today-empty p { margin: 0; }
+.today-empty--compact { padding: 14px 16px; }
+.today-suggest { display: flex; flex-direction: column; gap: 4px; }
 
 @media (max-width: 600px) {
   .today-item { gap: 10px; padding: 10px 12px 10px 10px; }

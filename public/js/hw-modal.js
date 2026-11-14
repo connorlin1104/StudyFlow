@@ -32,8 +32,11 @@ function openHwModal(preselectedClassId = null, preselectedFolderId = null) {
   setRepeatInput(null);
 
   // Build grouped <optgroup> select
+  // With no group given (the header button, or quick add that didn't name
+  // one) the select starts on a blank "Choose a group" instead of quietly
+  // picking the first, and the form's required check makes the user choose.
   const select = document.getElementById('hw-class');
-  let html = '';
+  let html = preselectedClassId ? '' : '<option value="" disabled selected>Choose a group…</option>';
   state.tabs.forEach(tab => {
     const tabClasses = state.classes.filter(c => c.tabId === tab.id);
     if (!tabClasses.length) return;
@@ -115,6 +118,8 @@ function openHwModalPrefilled({ description = '', classId = null, folderId = nul
     document.getElementById('hw-ampm').value   = hh >= 12 ? 'PM' : 'AM';
   }
   setRepeatInput(repeat);
+  // Quick add filled in the description but couldn't tell the group: go there.
+  if (description && !classId) document.getElementById('hw-class').focus();
 }
 
 function closeHwModal() {
