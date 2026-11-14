@@ -2441,8 +2441,10 @@ html.pwa-mode body {
   .palette-footer { display: none; }
 }
 @media (max-width: 600px) {
-  .modal--top { padding-top: 12px; }
-  .palette-box { max-height: calc(100vh - 24px); }
+  /* viewport-fit=cover lets the page run under the status bar, so clear it
+     like the header does, or the input lands behind the clock. */
+  .modal--top { padding-top: max(12px, calc(env(safe-area-inset-top, 0px) + 8px)); }
+  .palette-box { max-height: calc(100dvh - 24px - env(safe-area-inset-top, 0px)); }
 }
 
 /* =============================================================================
@@ -2628,8 +2630,12 @@ html.pwa-mode body {
 [data-theme="dark"] .view-btn--active { box-shadow: none; }
 
 @media (max-width: 600px) {
-  .view-toggle { margin-right: 8px; }
-  .view-btn { padding: 4px 7px; }
+  /* Too narrow for spaces and views on one row: the spaces keep the full
+     width and the view buttons get a row of their own underneath. */
+  .tab-bar { flex-wrap: wrap; }
+  .tab-list { flex-basis: 100%; }
+  .view-toggle { flex: 1 1 100%; margin: 6px 12px; }
+  .view-btn { flex: 1; padding: 5px 0; }
   .cal-title { font-size: .95rem; }
 
   /* Week: one day per row */
