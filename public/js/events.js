@@ -266,6 +266,17 @@ function wireEvents() {
       mobileSnap = saved;
       snapMobileTo(saved, false);
     }
+
+    // Turning a phone sideways crosses the 820px line into the side-by-side
+    // layout. The bottom sheet's height is an inline grid row, which that
+    // layout would keep as an empty band at the bottom (taller the further
+    // the sheet was pulled up), so drop it there and put it back on return.
+    matchMedia('(max-width: 820px)').addEventListener('change', e => {
+      touching = false;
+      appBody.style.transition = '';
+      if (e.matches) snapMobileTo(prefs.get('mobileSummarySnap', mobileSnap), false);
+      else appBody.style.gridTemplateRows = '';
+    });
   })();
   document.getElementById('pref-notifications').addEventListener('change', e => {
     if (e.target.checked) subscribeToNotifications();
