@@ -178,10 +178,11 @@ function takeEstimate(text) {
   return { estimateMin: min, text: text.slice(0, start) + ' ' + text.slice(start + m[0].length - m[1].length) };
 }
 
-/* "every day", "daily", "every weekday", "weekly", "every other week",
+/* "every day", "daily", "every weekday", "every other school day", "weekly", "every other week",
    "monthly", "every mon", "every other tue", "every mon, wed & fri". Runs
    before dates so the weekdays here aren't read as a due date. */
 const REPEAT_WORDS = [
+  [/\b(?:every\s+other\s+(?:school|week)\s*days?|block\s+(?:schedule|days?))\b/i, () => ({ freq: 'block', every: 2 })],
   [/\b(?:every\s+day|daily)\b/i,                                    () => ({ freq: 'daily' })],
   [/\b(?:every\s+week\s*day|week\s*days)\b/i,                     () => ({ freq: 'weekly', days: [1, 2, 3, 4, 5] })],
   [/\b(?:every\s+(?:other|2(?:nd)?)\s+weeks?|bi-?weekly)\b/i,      () => ({ freq: 'weekly', interval: 2 })],

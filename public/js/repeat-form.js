@@ -3,7 +3,8 @@ import { DAY_SHORT, describeRepeat, firstDue, presetToRepeat, repeatPreset } fro
 /* =============================================================================
    REPEAT IN THE ASSIGNMENT FORM
 
-   A menu (Doesn't repeat / Every day / Every weekday / Every week / Every 2
+   A menu (Doesn't repeat / Every day / Every weekday / Every other school
+   day / Every week / Every 2
    weeks / Every month), plus a row of weekday toggles for the two weekly
    choices, and a line underneath saying in words what was picked. Like the
    steps editor, nothing is saved from here: handleAddHomework reads it back
@@ -39,6 +40,7 @@ function sync() {
   hint().classList.toggle('hidden', !rule);
   if (!rule) return;
   let text = `${describeRepeat(rule)}. Ticking it off adds the next one.`;
+  if (rule.freq === 'block') text += ' Weekends are skipped. If a holiday throws the A/B days off, change the due date and the next ones follow from it.';
   if (!deadlineValue()) {
     const [y, m, d] = firstDue(rule, today()).split('-').map(Number);
     text += ` With no due date picked, the first is due ${new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}.`;

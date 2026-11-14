@@ -247,6 +247,9 @@ describe('repeat', () => {
     ['vocab biweekly',             W([3], 2),                '2026-11-11'],
     ['vocab monthly',              { freq: 'monthly', day: 11 }, '2026-11-11'],
     ['vocab monthly nov 20',       { freq: 'monthly', day: 20 }, '2026-11-20'],
+    ['vocab every other school day', { freq: 'block', every: 2 }, '2026-11-11'],
+    ['vocab every other weekday',  { freq: 'block', every: 2 }, '2026-11-11'],
+    ['vocab block schedule fri',   { freq: 'block', every: 2 }, '2026-11-13'],
   ];
   for (const [input, repeat, deadline] of cases) {
     test(`"${input}"`, () => {

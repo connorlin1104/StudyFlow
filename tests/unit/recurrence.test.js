@@ -68,6 +68,32 @@ describe('nextDue', () => {
   });
 });
 
+describe('block schedule (every other school day)', () => {
+  const block = { freq: 'block', every: 2 };
+  test('normalizes, defaulting to every 2', () => {
+    assert.deepEqual(normalizeRepeat({ freq: 'block' }), block);
+    assert.deepEqual(normalizeRepeat({ freq: 'block', every: 99 }), block);
+  });
+  test('skips weekends: Mon → Wed → Fri → Tue → Thu → Mon', () => {
+    const chain = ['2026-11-09'];
+    for (let i = 0; i < 5; i++) chain.push(nextDue(block, chain.at(-1), '2026-11-01'));
+    assert.deepEqual(chain, ['2026-11-09', '2026-11-11', '2026-11-13', '2026-11-17', '2026-11-19', '2026-11-23']);
+  });
+  test('done late, it keeps the A/B rotation instead of restarting', () => {
+    // Due Mon Nov 2, ticked on Wed Nov 11: the rotation's next day on or after then.
+    assert.equal(nextDue(block, '2026-11-02', TODAY), '2026-11-12');
+  });
+  test('first one: today on a weekday, Monday on a weekend', () => {
+    assert.equal(firstDue(block, TODAY), TODAY);
+    assert.equal(firstDue(block, '2026-11-14'), '2026-11-16');
+  });
+  test('reads and round-trips through the form', () => {
+    assert.equal(describeRepeat(block), 'Every other school day');
+    assert.equal(describeRepeat({ freq: 'block', every: 3 }), 'Every 3 school days');
+    assert.equal(repeatPreset(presetToRepeat('block')), 'block');
+  });
+});
+
 describe('firstDue', () => {
   test('today when the rule lands on today, else the next day it does', () => {
     assert.equal(firstDue({ freq: 'daily' }, TODAY), TODAY);

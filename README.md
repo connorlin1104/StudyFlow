@@ -150,7 +150,9 @@ ties after manual order and due time (`priorityRank()` in `state.js`).
 `subtasks` is an ordered checklist, `[{ id, text, done }]`, absent or null when
 there are none; `cleanSubtasks()` in `subtasks.js` tidies it before every write.
 `repeat` makes an assignment come back — `{ freq: 'daily' }`,
-`{ freq: 'weekly', interval: 1|2, days: [0–6] }` or `{ freq: 'monthly', day }`.
+`{ freq: 'weekly', interval: 1|2, days: [0–6] }`, `{ freq: 'monthly', day }` or
+`{ freq: 'block', every: 2 }` (every other school day, skipping weekends, for
+A/B block schedules).
 Nothing creates future copies ahead of time (there's no server to): completing
 one creates the next, due on `nextDue()` from `recurrence.js`, and undo deletes
 it again. A repeating assignment always has a due date, since the rule counts

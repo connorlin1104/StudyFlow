@@ -5,6 +5,12 @@
      { freq: 'daily' }
      { freq: 'weekly', interval: 1 | 2, days: [1, 3] }   // 0 = Sunday … 6 = Saturday
      { freq: 'monthly', day: 15 }                        // day of the month, 1–31
+     { freq: 'block', every: 2 }                         // every other school day
+
+   'block' is for A/B block schedules: it counts school days (Mon–Fri) only,
+   so a class on A days goes Mon, Wed, Fri, then Tue, Thu the next week. It
+   can't know about holidays; moving one copy's due date shifts the rotation
+   from there, since each copy counts from the one before.
 
    There's no background job to create future copies (Spark plan, no server),
    so a repeating assignment is one live document at a time: ticking it off
@@ -29,6 +35,7 @@ const DAY_NAMES  = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Fri
 const DAY_SHORT  = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const WEEKDAYS   = [1, 2, 3, 4, 5];
 const isYmd      = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
+const isSchoolDay = d => d.getDay() !== 0 && d.getDay() !== 6;
 
 /** A rule in its one canonical shape, or null when it isn't a rule. `deadline`
  *  fills in what the rule leaves out: the weekday for "every week", the day of
@@ -43,6 +50,9 @@ function normalizeRepeat(r, deadline = null) {
     if (!days.length) return null;
     return { freq: 'weekly', interval: r.interval === 2 ? 2 : 1, days };
   }
+  if (r.freq === 'block') {
+    return { freq: 'block', every: Number.isInteger(r.every) && r.every >= 2 && r.every <= 10 ? r.every : 2 };
+  }
   if (r.freq === 'monthly') {
     const day = Number.isInteger(r.day) && r.day >= 1 && r.day <= 31 ? r.day : due?.getDate();
     return day ? { freq: 'monthly', day } : null;
@@ -53,6 +63,11 @@ function normalizeRepeat(r, deadline = null) {
 // The first date strictly after `from` that the rule lands on.
 function stepOnce(rule, from) {
   if (rule.freq === 'daily') return addDays(from, 1);
+  if (rule.freq === 'block') {
+    let d = from;
+    for (let n = 0; n < rule.every;) { d = addDays(d, 1); if (isSchoolDay(d)) n++; }
+    return d;
+  }
   if (rule.freq === 'monthly') {
     // Clamped to short months, but always from the rule's own day, so a
     // "31st" assignment goes Jan 31 → Feb 28 → Mar 31 rather than drifting.
@@ -90,19 +105,27 @@ function nextDue(repeat, deadline, today) {
 /** The first date on or after `today` the rule lands on — the due date for a
  *  repeating assignment that was saved without one. */
 function firstDue(repeat, today) {
+  // A block rotation has no fixed days to land on, so it starts on the next
+  // school day (today, on a weekday); the user moves it if that's a B day.
+  if (normalizeRepeat(repeat)?.freq === 'block') {
+    let d = parse(today);
+    while (!isSchoolDay(d)) d = addDays(d, 1);
+    return ymd(d);
+  }
   return nextDue(repeat, ymd(addDays(parse(today), -1)), today);
 }
 
 const ordinal = n => n + (n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th');
 const listOf  = xs => xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} & ${xs.at(-1)}`;
 
-/** "Every day", "Every weekday", "Every Monday", "Every Mon, Wed & Fri",
+/** "Every day", "Every weekday", "Every other school day", "Every Monday", "Every Mon, Wed & Fri",
  *  "Every 2 weeks on Tuesday", "Every month on the 15th". Empty for no rule. */
 function describeRepeat(repeat) {
   const r = normalizeRepeat(repeat);
   if (!r) return '';
   if (r.freq === 'daily') return 'Every day';
   if (r.freq === 'monthly') return `Every month on the ${ordinal(r.day)}`;
+  if (r.freq === 'block') return r.every === 2 ? 'Every other school day' : `Every ${r.every} school days`;
   const days = r.days.length === 1 ? DAY_NAMES[r.days[0]] : listOf(r.days.map(d => DAY_SHORT[d]));
   if (r.interval === 2) return `Every 2 weeks on ${days}`;
   if (r.days.join() === WEEKDAYS.join()) return 'Every weekday';
@@ -128,6 +151,7 @@ function presetToRepeat(preset, { days = [], deadline = null } = {}) {
     case 'weekly':   return normalizeRepeat({ freq: 'weekly', interval: 1, days }, deadline);
     case 'biweekly': return normalizeRepeat({ freq: 'weekly', interval: 2, days }, deadline);
     case 'monthly':  return normalizeRepeat({ freq: 'monthly' }, deadline);
+    case 'block':    return { freq: 'block', every: 2 };
     default:         return null;
   }
 }
