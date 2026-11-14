@@ -2041,6 +2041,12 @@ kbd {
   }
   .summary-drag-handle:active .summary-drag-pill { height: 4px; width: 48px; }
 }
+/* A phone on its side is wider than 820px, so it gets the desktop layout —
+   but the footer would just be a dark strip over the home indicator there. */
+@media (max-height: 500px) and (orientation: landscape) {
+  .site-footer { display: none; }
+}
+
 /* iOS PWA: 100dvh excludes the home indicator zone — extend body to cover it */
 html.pwa-mode body {
   height: calc(100dvh + env(safe-area-inset-bottom, 0px));
